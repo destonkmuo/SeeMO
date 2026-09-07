@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # seemo
 
 An Electron application with React and TypeScript
@@ -32,3 +33,6 @@ $ npm run build:mac
 # For Linux
 $ npm run build:linux
 ```
+=======
+# SeeMO
+>>>>>>> dcc3d4b1e3f72d8ce7616c832a37c4ab65bfcaf5
