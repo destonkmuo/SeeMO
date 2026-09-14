@@ -1,20 +1,220 @@
-export const JARVIS_WGSL = /* wgsl */ `
-struct Uniforms {
-  time: f32,
-  resolution: vec2f,
-  speaking: f32,
-  colorMix: f32,
+const COMMON = /* wgsl */ `
+struct Particle {
+  pos: vec3f,
+  seed: f32,
+  vel: vec3f,
+  life: f32,
 };
 
-@group(0) @binding(0) var<uniform> u: Uniforms;
+fn hash31(p: vec3f) -> f32 {
+  var q = fract(p * 0.1031);
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
 
-const GRAY: vec3f = vec3f(0.40, 0.44, 0.48);
-const BLUE: vec3f = vec3f(0.22, 0.65, 1.0);
-const BRIGHT: vec3f = vec3f(0.60, 0.90, 1.0);
-const PI: f32 = 3.141592653589793;
+fn vnoise(p: vec3f) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let w = f * f * (3.0 - 2.0 * f);
+
+  let n000 = hash31(i + vec3f(0.0, 0.0, 0.0));
+  let n100 = hash31(i + vec3f(1.0, 0.0, 0.0));
+  let n010 = hash31(i + vec3f(0.0, 1.0, 0.0));
+  let n110 = hash31(i + vec3f(1.0, 1.0, 0.0));
+  let n001 = hash31(i + vec3f(0.0, 0.0, 1.0));
+  let n101 = hash31(i + vec3f(1.0, 0.0, 1.0));
+  let n011 = hash31(i + vec3f(0.0, 1.0, 1.0));
+  let n111 = hash31(i + vec3f(1.0, 1.0, 1.0));
+
+  let nx00 = mix(n000, n100, w.x);
+  let nx10 = mix(n010, n110, w.x);
+  let nx01 = mix(n001, n101, w.x);
+  let nx11 = mix(n011, n111, w.x);
+
+  let nxy0 = mix(nx00, nx10, w.y);
+  let nxy1 = mix(nx01, nx11, w.y);
+
+  return mix(nxy0, nxy1, w.z);
+}
+
+// Configurable vibration function
+// t: current time
+// seed: per-particle seed for variation
+// freq: base speed of vibration
+// intensity: strength scale of the vibration force
+fn vibrate(t: f32, seed: f32, freq: f32, intensity: f32) -> vec3f {
+  let phase = t * freq + seed * 100.0;
+  return vec3f(
+    sin(phase * 1.1),
+    cos(phase * 0.9),
+    sin(phase * 1.3)
+  ) * intensity;
+}
+`
+
+export const JARVIS_COMPUTE =
+  COMMON +
+  /* wgsl */ `
+struct SimUniforms {
+  dt: f32,
+  time: f32,
+  count: f32,
+  speaking: f32,
+  breathAmp: f32,
+  turbulence: f32,
+  pad0: f32,
+  pad1: f32,
+};
+
+@group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
+@group(0) @binding(1) var<uniform> sim: SimUniforms;
+
+@compute @workgroup_size(64)
+fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= u32(sim.count)) {
+    return;
+  }
+
+  var p = particles[i];
+  let t = sim.time;
+  let pos = p.pos;
+  let r = max(length(pos), 0.0001);
+  let dir = pos / r;
+
+  // Tangential swirl around the vertical axis keeps the cloud alive.
+  let up = vec3f(0.0, 1.0, 0.0);
+  var tangent = cross(up, dir);
+  let tl = length(tangent);
+  if (tl > 0.001) {
+    tangent = tangent / tl;
+  }
+
+  // Base target radius (contained size)
+  let phase = p.seed * 6.2831853;
+  let targetR = (0.30 + 0.78 * p.seed) * (1.0 + sim.breathAmp * sin(t * 1.3 + phase));
+
+  var force = tangent * (0.5 + 0.7 * p.seed);
+  force += dir * (targetR - r) * 2.8;
+
+  // Call vibrate(time, seed, frequency, intensity) when speaking
+  let vibration = vibrate(t, p.seed, 45.0, 1.8) * sim.speaking;
+
+  // Organic turbulence combined with vibration
+  let n1 = vnoise(pos * 1.7 + t * 0.15);
+  let n2 = vnoise(pos * 1.7 + vec3f(13.1, 4.3, 0.0) + t * 0.15);
+  let n3 = vnoise(pos * 1.7 + vec3f(0.0, 7.7, 9.2) + t * 0.15);
+  force += (vec3f(n1, n2, n3) - vec3f(0.5)) * sim.turbulence + vibration;
+
+  force.y += sin(t * 0.7 + phase) * 0.12;
+
+  var vel = p.vel + force * sim.dt;
+  vel *= 0.95;
+  var newPos = pos + vel * sim.dt;
+
+  // Keep tight boundary to avoid viewport overflow
+  let nr = length(newPos);
+  if (nr > 1.3) {
+    newPos = newPos * (1.3 / nr);
+    vel = vel * 0.4;
+  }
+
+  p.pos = newPos;
+  p.vel = vel;
+  particles[i] = p;
+}
+`
+
+export const JARVIS_PARTICLE =
+  COMMON +
+  /* wgsl */ `
+struct RenderUniforms {
+  viewProj: mat4x4f,
+  resolution: vec2f,
+  time: f32,
+  speaking: f32,
+  colorMix: f32,
+  sizeScale: f32,
+  brightness: f32,
+  pad0: f32,
+};
+
+@group(0) @binding(0) var<storage, read> particles: array<Particle>;
+@group(0) @binding(1) var<uniform> ren: RenderUniforms;
+
+struct VSOut {
+  @builtin(position) pos: vec4f,
+  @location(0) uv: vec2f,
+  @location(1) energy: f32,
+  @location(2) radial: f32,
+  @location(3) depth: f32,
+};
 
 @vertex
-fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+fn vs_particle(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) -> VSOut {
+  let p = particles[inst];
+  let clip = ren.viewProj * vec4f(p.pos, 1.0);
+  let speed = length(p.vel);
+  let radial = length(p.pos);
+
+  var corners = array<vec2f, 6>(
+    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
+    vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0),
+  );
+  let c = corners[vi];
+
+  let baseSize = ren.sizeScale * (0.6 + 0.9 * p.seed);
+  let size = baseSize * (1.0 + speed * 0.9 + ren.speaking * 0.2);
+
+  var out: VSOut;
+  out.pos = vec4f(clip.xy + c * size, clip.z, clip.w);
+  out.uv = c;
+  out.energy = 0.5 + 0.9 * clamp(speed, 0.0, 1.2);
+  out.radial = radial;
+  out.depth = clip.w;
+  return out;
+}
+
+@fragment
+fn fs_particle(in: VSOut) -> @location(0) vec4f {
+  let d = length(in.uv);
+  if (d > 1.0) {
+    discard;
+  }
+
+  let core = exp(-d * d * 7.0);
+  let glow = exp(-d * d * 2.0) * 0.35;
+
+  let base = mix(vec3f(0.30, 0.38, 0.50), vec3f(0.16, 0.58, 1.0), ren.colorMix);
+  let hot = mix(vec3f(0.85, 0.88, 0.92), vec3f(0.80, 0.96, 1.0), ren.colorMix);
+
+  let inner = clamp(1.0 - in.radial, 0.0, 1.0);
+  let col = mix(base, hot, inner * inner * 0.5);
+
+  let depthFade = 1.0 / (1.0 + max(in.depth - 3.0, 0.0) * 0.7);
+  let intensity = (core + glow) * in.energy * ren.brightness * depthFade;
+
+  return vec4f(col * intensity, intensity);
+}
+`
+
+export const JARVIS_COMPOSITE = /* wgsl */ `
+struct CompositeUniforms {
+  resolution: vec2f,
+  time: f32,
+  colorMix: f32,
+  speaking: f32,
+  pad0: f32,
+  pad1: f32,
+  pad2: f32,
+};
+
+@group(0) @binding(0) var<uniform> comp: CompositeUniforms;
+@group(0) @binding(1) var sceneTex: texture_2d<f32>;
+@group(0) @binding(2) var sceneSampler: sampler;
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
   var positions = array<vec2f, 3>(
     vec2f(-1.0, -1.0),
     vec2f(3.0, -1.0),
@@ -23,81 +223,19 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
   return vec4f(positions[vi], 0.0, 1.0);
 }
 
-fn ring(p: vec2f, radius: f32, width: f32) -> f32 {
-  return abs(length(p) - radius) - width;
-}
-
 @fragment
-fn fs_main(@builtin(position) frag: vec4f) -> @location(0) vec4f {
-  var uv = (frag.xy * 2.0 - u.resolution) / u.resolution.y;
+fn fs_composite(@builtin(position) frag: vec4f) -> @location(0) vec4f {
+  let sc = frag.xy / comp.resolution;
+  var uv = (frag.xy * 2.0 - comp.resolution) / comp.resolution.y;
+  uv.y = -uv.y;
 
-  let t = u.time;
+  var col = textureSampleLevel(sceneTex, sceneSampler, sc, 0.0).rgb;
+  col = vec3f(1.0) - exp(-col * 1.25);
 
-  // Expand / contract while speaking.
-  let pulse = 0.5 + 0.5 * sin(t * 3.0);
-  let speakScale = 1.0 + u.speaking * 0.14 * pulse;
+  let rr = length(uv);
 
-  // Subtle idle breathing, always on.
-  let breath = 1.0 + 0.025 * sin(t * 1.1);
-
-  let s = speakScale * breath;
-  let p = uv / s;
-
-  let d = length(p);
-
-  // Base color ramps gray -> blue as the agent activates.
-  let base = mix(GRAY, BLUE, u.colorMix);
-
-  // --- Background ---
-  var col = vec3f(0.015, 0.025, 0.04);
-  col += base * exp(-d * 2.4) * 0.08;
-
-  // --- Atmosphere glow ---
-  let glow = exp(-d * 3.0);
-  col += base * glow * (0.55 + u.speaking * 0.9 * pulse);
-
-  // --- Core disc, brighter toward center ---
-  let coreMask = 1.0 - smoothstep(0.0, 0.34, d);
-  let coreGlow = mix(BRIGHT, base, clamp(d / 0.34, 0.0, 1.0));
-  col += coreGlow * coreMask * 0.95;
-
-  // --- Rim highlight ---
-  let rim = 1.0 - smoothstep(0.27, 0.36, d);
-  col += BRIGHT * rim * 0.28;
-
-  // --- Ring 1: rotating tick marks ---
-  let a1 = atan2(p.y, p.x);
-  let r1 = ring(p, 0.46, 0.006);
-  let ticks1 = 0.5 + 0.5 * sin(a1 * 24.0 - t * 1.5);
-  let ring1 = 1.0 - smoothstep(0.001, 0.004, abs(r1));
-  col += base * ring1 * (0.30 + 0.70 * ticks1);
-
-  // --- Ring 2: counter-rotating ticks ---
-  let r2 = ring(p, 0.62, 0.004);
-  let ticks2 = 0.5 + 0.5 * sin(a1 * 40.0 + t * 2.0);
-  let ring2 = 1.0 - smoothstep(0.001, 0.004, abs(r2));
-  col += base * ring2 * (0.14 + 0.36 * ticks2);
-
-  // --- Ring 3: segmented arc ---
-  let r3 = ring(p, 0.78, 0.005);
-  let seg = step(0.5, 0.5 + 0.5 * sin(a1 * 12.0 - t * 1.0));
-  let ring3 = 1.0 - smoothstep(0.001, 0.004, abs(r3));
-  col += base * ring3 * seg * 0.4;
-
-  // --- Orbiting dots ---
-  var dots = 0.0;
-  for (var i: i32 = 0; i < 3; i = i + 1) {
-    let fi = f32(i);
-    let ang = t * (0.5 + 0.3 * fi) + fi * (PI * 2.0 / 3.0);
-    let radius = 0.46 + 0.16 * fi;
-    let pos = vec2f(cos(ang), sin(ang)) * radius;
-    let dd = length(p - pos);
-    dots += 1.0 - smoothstep(0.02, 0.06, dd);
-  }
-  col += BRIGHT * dots * 0.5;
-
-  // Extra energy while speaking.
-  col += base * glow * u.speaking * pulse * 0.5;
+  // Soft subtle vignetting around the edges
+  col *= 1.0 - 0.28 * smoothstep(0.5, 1.5, rr);
 
   return vec4f(col, 1.0);
 }

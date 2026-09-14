@@ -1,12 +1,5 @@
-import {
-  ActivityIcon,
-  AgentIcon,
-  CalendarIcon,
-  ListTodoIcon,
-  MoreIcon
-} from './icons'
-
-export type NavKey = 'todo' | 'calendar' | 'agent' | 'activity' | 'misc'
+import { type NavKey, useAppStore } from '../store/appStore'
+import { ActivityIcon, AgentIcon, CalendarIcon, ListTodoIcon, MoreIcon } from './icons'
 
 interface NavItem {
   key: NavKey
@@ -22,12 +15,10 @@ const navItems: NavItem[] = [
   { key: 'misc', label: 'Misc', icon: MoreIcon }
 ]
 
-interface NavbarProps {
-  active: NavKey
-  onChange: (key: NavKey) => void
-}
+function Navbar(): React.JSX.Element {
+  const active = useAppStore((state) => state.active)
+  const setActive = useAppStore((state) => state.setActive)
 
-function Navbar({ active, onChange }: NavbarProps): React.JSX.Element {
   return (
     <nav className="navbar" aria-label="Primary navigation">
       {navItems.map((item) => {
@@ -39,7 +30,7 @@ function Navbar({ active, onChange }: NavbarProps): React.JSX.Element {
             className={`navbar__item${active === item.key ? ' is-active' : ''}`}
             aria-label={item.label}
             title={item.label}
-            onClick={() => onChange(item.key)}
+            onClick={() => setActive(item.key)}
           >
             <Icon size={22} />
           </button>
