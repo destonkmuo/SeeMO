@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import {
   ActivityIcon,
   AgentIcon,
@@ -23,9 +22,12 @@ const navItems: NavItem[] = [
   { key: 'misc', label: 'Misc', icon: MoreIcon }
 ]
 
-function Navbar(): React.JSX.Element {
-  const [active, setActive] = useState<NavKey>('todo')
+interface NavbarProps {
+  active: NavKey
+  onChange: (key: NavKey) => void
+}
 
+function Navbar({ active, onChange }: NavbarProps): React.JSX.Element {
   return (
     <nav className="navbar" aria-label="Primary navigation">
       {navItems.map((item) => {
@@ -37,7 +39,7 @@ function Navbar(): React.JSX.Element {
             className={`navbar__item${active === item.key ? ' is-active' : ''}`}
             aria-label={item.label}
             title={item.label}
-            onClick={() => setActive(item.key)}
+            onClick={() => onChange(item.key)}
           >
             <Icon size={22} />
           </button>

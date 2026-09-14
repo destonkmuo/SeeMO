@@ -15,6 +15,73 @@ body {
   height: 100vh;
 }
 
+.app__content {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.agent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 24px;
+}
+
+.agent__core {
+  width: 100%;
+  max-width: 520px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.jarvis-core {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.jarvis-core--unsupported {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ev-c-text-2);
+  font-size: 14px;
+}
+
+.agent__controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.agent__toggle {
+  cursor: pointer;
+  border: 1px solid var(--ev-button-alt-border);
+  border-radius: 20px;
+  padding: 0 20px;
+  line-height: 38px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ev-button-alt-text);
+  background-color: var(--ev-button-alt-bg);
+}
+
+.agent__toggle:hover {
+  border-color: var(--ev-button-alt-hover-border);
+  color: var(--ev-button-alt-hover-text);
+  background-color: var(--ev-button-alt-hover-bg);
+}
+
+.agent__status {
+  font-size: 14px;
+  color: var(--ev-c-text-2);
+}
+
 .home {
   flex: 1;
   display: flex;
