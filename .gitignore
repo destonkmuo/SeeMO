@@ -4,3 +4,10 @@ out
 .DS_Store
 .eslintcache
 *.log*
+
+# voice pipeline artifacts (vendored whisper.cpp, models, python env)
+tools/voice-pipeline/vendor
+tools/voice-pipeline/models
+tools/voice-pipeline/.venv
+__pycache__
+

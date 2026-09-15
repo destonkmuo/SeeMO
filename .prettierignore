@@ -4,3 +4,6 @@ pnpm-lock.yaml
 LICENSE.md
 tsconfig.json
 tsconfig.*.json
+tools/voice-pipeline/vendor
+tools/voice-pipeline/.venv
+tools/voice-pipeline/models

@@ -1,6 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { startVoice, stopVoice } from './voice'
 import icon from '../../resources/icon.png?asset'
 
 function createWindow(): void {
@@ -54,6 +55,10 @@ app.whenReady().then(() => {
 
   createWindow()
 
+  // Start the always-on wake-word + transcription pipeline. Transcriptions
+  // are printed to this process's console and forwarded to the renderer.
+  startVoice()
+
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
@@ -68,6 +73,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('will-quit', () => {
+  stopVoice()
 })
 
 // In this file you can include the rest of your app's specific main process

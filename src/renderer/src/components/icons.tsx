@@ -4,11 +4,7 @@ type IconProps = SVGProps<SVGSVGElement> & {
   size?: number
 }
 
-function IconBase({
-  size = 24,
-  children,
-  ...props
-}: IconProps): React.JSX.Element {
+function IconBase({ size = 24, children, ...props }: IconProps): React.JSX.Element {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
