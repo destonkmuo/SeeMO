@@ -49,7 +49,7 @@ TRANSCRIBE_MODEL = os.environ.get("WHISPER_MODEL", "models/ggml-base.bin")
 WAKE_WINDOW_SECONDS = 4.0      # audio window fed to whisper each check
 WAKE_INTERVAL = 1.0            # seconds between wake-word checks
 # Whisper sometimes hears "jarvis" slightly differently; keep a small alias set.
-WAKE_ALIASES = ("simo", "sima")
+WAKE_ALIASES = ("simo", "sima", "simmo", "simoe", "seema", "sema")
 
 # Endpointing via a simple RMS energy gate.
 ENERGY_THRESHOLD = 0.012       # RMS in [0, 1]
@@ -61,7 +61,7 @@ PRE_ROLL_SECONDS = 0.5         # keep a little audio before speech start
 # How long the wake listener must be quiet (no fresh transcript) before we
 # consider the speaker done and print the merged line. Must comfortably exceed
 # WAKE_INTERVAL + one whisper.cpp call, hence the generous value.
-SILENCE_FINALIZE_SEC = 2.5
+SILENCE_FINALIZE_SEC = 1.5
 
 
 # --------------------------------------------------------------------------- #
