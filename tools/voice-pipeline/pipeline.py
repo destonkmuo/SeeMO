@@ -4,11 +4,12 @@ whisper.cpp (no openWakeWord, no Silero VAD).
 
 Architecture:
   * A background thread continuously transcribes a rolling window of microphone
-    audio with a *tiny* whisper model to detect the wake phrase ("hey jarvis").
+    audio with a *tiny* whisper model, purely to check whether the wake phrase
+    ("hey simo") was said. Its output is never printed or merged anywhere.
   * The main thread captures audio and uses a tiny built-in energy gate (pure
     numpy, not an external model) to detect the end of the utterance.
-  * The captured buffer is then transcribed with a larger whisper model and the
-    plain text is printed to stdout.
+  * The captured buffer is transcribed exactly once with a larger whisper model
+    and the plain text is printed to stdout as the finished sentence.
 
 Only whisper.cpp is used for the ML; there are no other model downloads.
 The accompanying `start.sh` builds whisper.cpp, downloads the models, and
@@ -58,103 +59,17 @@ MAX_UTTERANCE_SECONDS = 15.0   # hard cap on one command
 NO_SPEECH_TIMEOUT = 4.0        # give up if nothing is said after the wake word
 PRE_ROLL_SECONDS = 0.5         # keep a little audio before speech start
 
-# How long the wake listener must be quiet (no fresh transcript) before we
-# consider the speaker done and print the merged line. Must comfortably exceed
-# WAKE_INTERVAL + one whisper.cpp call, hence the generous value.
-SILENCE_FINALIZE_SEC = 1.5
-
-
-# --------------------------------------------------------------------------- #
-# Rolling transcript accumulator + fuzzy merger
-# --------------------------------------------------------------------------- #
-# Every transcript whisper returns is merged into one growing string. Overlap
-# between consecutive rolling-window transcripts is detected via longest common
-# substring and removed. The string is printed once — and only once — after the
-# speaker has actually stopped.
-
-_accumulated: str = ""
-_accumulated_lock = threading.Lock()
-_last_transcript_time: float = 0.0
-
-
-def _longest_common_substring(a: str, b: str) -> tuple[int, int, int]:
-    """Return (start_in_a, start_in_b, length) of the longest common substring."""
-    if not a or not b:
-        return (0, 0, 0)
-    la, lb = len(a), len(b)
-    al, bl = a.lower(), b.lower()
-    prev = [0] * (lb + 1)
-    best = (0, 0, 0)
-    for i in range(1, la + 1):
-        cur = [0] * (lb + 1)
-        ai = al[i - 1]
-        for j in range(1, lb + 1):
-            if ai == bl[j - 1]:
-                cur[j] = prev[j - 1] + 1
-                if cur[j] > best[2]:
-                    best = (i - cur[j], j - cur[j], cur[j])
-        prev = cur
-    return best
-
-
-def _merge_two(a: str, b: str) -> str:
-    """Merge two transcripts, dropping the shared overlap; prefer the newer text."""
-    if not a:
-        return b
-    if not b:
-        return a
-    la, lb = a.lower(), b.lower()
-    if lb in la:                # b already covered by a
-        return a
-    if la in lb:                # a is contained in b → take the newer, longer one
-        return b
-    sa, sb, length = _longest_common_substring(a, b)
-    if length < 3:              # nothing meaningful shared → concatenate
-        return a.rstrip() + " " + b.lstrip()
-    return (a[:sa].rstrip() + " " + b[sb:].lstrip()).strip()
-
-
-def _accumulate(text: str) -> None:
-    """Merge a fresh transcript into the running merged string."""
-    global _accumulated, _last_transcript_time
-    text = (text or "").strip()
-    if not text or text.startswith(("(", "[")):   # skip [BLANK_AUDIO] etc.
-        return
-    with _accumulated_lock:
-        _accumulated = _merge_two(_accumulated, text)
-        _last_transcript_time = time.time()
-
-
-def _clear_accumulated() -> None:
-    global _accumulated
-    with _accumulated_lock:
-        _accumulated = ""
-
-
-def finalize_transcript() -> None:
-    """Print the merged transcript (if any) and start a fresh one."""
-    global _accumulated
-    with _accumulated_lock:
-        text = _accumulated.strip()
-        _accumulated = ""
-    if text:
-        print(f"Transcribed: {text}", flush=True)
-
-
-def _should_finalize() -> bool:
-    """True once we have content and the wake listener has gone quiet."""
-    with _accumulated_lock:
-        if not _accumulated.strip():
-            return False
-        return (time.time() - _last_transcript_time) > SILENCE_FINALIZE_SEC
-
 
 # --------------------------------------------------------------------------- #
 # whisper.cpp helper
 # --------------------------------------------------------------------------- #
 
 def run_whisper(model_path: str, samples: np.ndarray) -> str:
-    """Transcribe int16 samples with a whisper.cpp model and return plain text."""
+    """Transcribe int16 samples with a whisper.cpp model and return plain text.
+
+    This function is pure: it does not print, accumulate, or otherwise leak
+    its result anywhere. Callers decide what to do with the returned text.
+    """
     if samples.size == 0:
         return ""
 
@@ -180,11 +95,6 @@ def run_whisper(model_path: str, samples: np.ndarray) -> str:
         raise RuntimeError(f"whisper-cli failed: {proc.stderr.strip()}")
 
     text = " ".join(line.strip() for line in proc.stdout.splitlines() if line.strip())
-
-    # 📍 Merge into the rolling accumulator instead of printing. The actual
-    # print happens once the speaker goes quiet — see finalize_transcript().
-    _accumulate(text)
-
     return text
 
 
@@ -197,9 +107,19 @@ def contains_wake_word(text: str) -> bool:
     return any(alias in text for alias in WAKE_ALIASES)
 
 
+def is_blank(text: str) -> bool:
+    """True for whisper's own placeholders like '[BLANK_AUDIO]' or silence."""
+    text = text.strip()
+    return not text or text.startswith(("(", "["))
+
+
 # --------------------------------------------------------------------------- #
 # Wake-word listener (runs whisper in a background thread)
 # --------------------------------------------------------------------------- #
+# NOTE: this listener's job is *only* to flip `detected` when it hears the
+# wake phrase. It never prints or accumulates a transcript — that avoids the
+# stream of overlapping, half-finished fragments you'd otherwise get from
+# re-transcribing a sliding window every second.
 
 class WakeListener(threading.Thread):
     """Keeps a rolling audio window and periodically asks whisper for text."""
@@ -341,10 +261,11 @@ def main() -> None:
             sys.stderr.write("[wake] utterance too short, ignored\n")
         else:
             try:
-                run_whisper(TRANSCRIBE_MODEL, samples)
-                # 📍 Print the merged, de-duplicated accumulator instead of the
-                # raw utterance transcript.
-                finalize_transcript()
+                # Single whisper call on the whole captured utterance. This is
+                # the only place a transcript gets printed — once, in full.
+                text = run_whisper(TRANSCRIBE_MODEL, samples)
+                if not is_blank(text):
+                    print(f"Transcribed: {text.strip()}", flush=True)
             except Exception as exc:  # noqa: BLE001
                 sys.stderr.write(f"[error] transcription failed: {exc}\n")
 
@@ -368,9 +289,6 @@ def main() -> None:
                 if listener.detected.is_set():
                     sys.stderr.write("[wake] wake word detected\n")
                     listener.enable(False)
-                    # 📍 Drop whatever the wake listener accumulated — it
-                    # contains the wake phrase, not the command.
-                    _clear_accumulated()
                     speech_chunks = [listener.recent(PRE_ROLL_SECONDS)]
                     gate = EnergyGate()
                     speech_start_sec = None
@@ -378,12 +296,6 @@ def main() -> None:
                     silence_since_wake = 0.0
                     state = "CAPTURE"
                     continue
-
-                # 📍 Only finalize once the wake listener has gone quiet for
-                # SILENCE_FINALIZE_SEC. This collapses the stream of
-                # near-duplicate rolling-window transcripts into one line.
-                if _should_finalize():
-                    finalize_transcript()
 
             elif state == "CAPTURE":
                 speech_chunks.append(chunk)
