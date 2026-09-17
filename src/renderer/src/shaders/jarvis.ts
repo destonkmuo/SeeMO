@@ -247,14 +247,22 @@ fn fs_composite(@builtin(position) frag: vec4f) -> @location(0) vec4f {
   var uv = (frag.xy * 2.0 - comp.resolution) / comp.resolution.y;
   uv.y = -uv.y;
 
-  var col = textureSampleLevel(sceneTex, sceneSampler, sc, 0.0).rgb;
-  col = vec3f(1.0) - exp(-col * 1.25);
+  let scene = textureSampleLevel(sceneTex, sceneSampler, sc, 0.0);
+
+  // The particles accumulate additively, so the scene's alpha channel holds
+  // their total coverage. Tonemap colour and coverage with the same curve so
+  // the premultiplied result stays consistent and the canvas can be
+  // composited over whatever is behind it.
+  var col = vec3f(1.0) - exp(-scene.rgb * 1.25);
+  var alpha = 1.0 - exp(-scene.a * 1.25);
 
   let rr = length(uv);
 
   // Soft subtle vignetting around the edges
-  col *= 1.0 - 0.28 * smoothstep(0.5, 1.5, rr);
+  let vig = 1.0 - 0.28 * smoothstep(0.5, 1.5, rr);
+  col *= vig;
+  alpha *= vig;
 
-  return vec4f(col, 1.0);
+  return vec4f(col, alpha);
 }
 `

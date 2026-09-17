@@ -31,9 +31,13 @@ function Agent(): React.JSX.Element {
             {s.label}
           </button>
         ))}
-        <span className="agent__status">
-          Status: <strong>{coreState}</strong> — {activeHint}
-        </span>
+        {coreState === 'working' ? (
+          <span className="agent__thinking">core thinking</span>
+        ) : (
+          <span className="agent__status">
+            Status: <strong>{coreState}</strong> — {activeHint}
+          </span>
+        )}
       </div>
     </main>
   )

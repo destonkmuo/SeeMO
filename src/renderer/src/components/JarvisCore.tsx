@@ -6,7 +6,7 @@ const PARTICLE_COUNT = 40000
 const PARTICLE_FLOATS = 8
 const WORKGROUP_SIZE = 64
 
-const RESOLUTION_CAP = 1600
+const RESOLUTION_CAP = 2048
 const HDR_FORMAT: GPUTextureFormat = 'rgba16float'
 
 const SIM_SIZE = 48
@@ -260,7 +260,9 @@ function JarvisCore(): React.JSX.Element {
       }
 
       const format = navigator.gpu.getPreferredCanvasFormat()
-      context.configure({ device: gpu, format, alphaMode: 'opaque' })
+      // Premultiplied so the orb composites over the page instead of drawing
+      // an opaque black square behind itself.
+      context.configure({ device: gpu, format, alphaMode: 'premultiplied' })
 
       const computeModule = gpu.createShaderModule({ code: JARVIS_COMPUTE })
       const particleModule = gpu.createShaderModule({ code: JARVIS_PARTICLE })
@@ -509,7 +511,7 @@ function JarvisCore(): React.JSX.Element {
           colorAttachments: [
             {
               view: sceneTexture.createView(),
-              clearValue: { r: 0, g: 0, b: 0, a: 1 },
+              clearValue: { r: 0, g: 0, b: 0, a: 0 },
               loadOp: 'clear',
               storeOp: 'store'
             }
@@ -524,7 +526,7 @@ function JarvisCore(): React.JSX.Element {
           colorAttachments: [
             {
               view: context.getCurrentTexture().createView(),
-              clearValue: { r: 0, g: 0, b: 0, a: 1 },
+              clearValue: { r: 0, g: 0, b: 0, a: 0 },
               loadOp: 'clear',
               storeOp: 'store'
             }

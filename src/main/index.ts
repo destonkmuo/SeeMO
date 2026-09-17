@@ -2,13 +2,16 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { startVoice, stopVoice } from './voice'
+import { registerVaultHandlers } from './vault'
 import icon from '../../resources/icon.png?asset'
 
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width: 1500,
+    height: 880,
+    minWidth: 720,
+    minHeight: 520,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -52,6 +55,9 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
+
+  // Markdown vault: one .md file per note, readable outside the app.
+  registerVaultHandlers()
 
   createWindow()
 
