@@ -81,10 +81,10 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       // re-rendering this provider on every state change.
       const { setCoreState, addChatMessage, backgroundListening } = useAppStore.getState()
       setCoreState('working')
-      // Spoken commands also land in the agent chat as user messages.
+      // Spoken commands also land in the SeeMO chat as user messages.
       addChatMessage('user', text)
       // Background listening: answer out loud in state + chat even when the
-      // Agent page isn't open. Same engine as typed messages, so the flow
+      // SeeMO page isn't open. Same engine as typed messages, so the flow
       // (and its supersede guards) stay identical.
       if (backgroundListening) respondTo(text)
       if (workingTimer.current) clearTimeout(workingTimer.current)

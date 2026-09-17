@@ -6,10 +6,10 @@ import { type CoreState, useAppStore } from '../store/appStore'
 
 const STATES: { key: CoreState; label: string; hint: string }[] = [
   { key: 'sleep', label: 'Sleep', hint: 'Dormant — not working, not spoken to' },
+  { key: 'summoned', label: 'Summoned', hint: 'Just heard the wake word' },
   { key: 'idle', label: 'Idle', hint: 'Listening — being spoken to' },
   { key: 'working', label: 'Working', hint: 'On an objective' },
-  { key: 'speaking', label: 'Speaking', hint: 'Talking back' },
-  { key: 'summoned', label: 'Summoned', hint: 'Just heard the wake word' }
+  { key: 'speaking', label: 'Speaking', hint: 'Talking back' }
 ]
 
 function timeOfDay(timestamp: number): string {
@@ -73,9 +73,9 @@ function Agent(): React.JSX.Element {
         </div>
       </div>
 
-      <section className="agent__chat" aria-label="Agent chat">
+      <section className="agent__chat" aria-label="SeeMO chat">
         <header className="chat__header">
-          <span className="chat__title">Agent</span>
+          <span className="chat__title">SeeMO</span>
           <span className="chat__tag">Local preview</span>
           <span className="chat__state">
             <span className={`chat__dot chat__dot--${coreState}`} />
@@ -122,7 +122,7 @@ function Agent(): React.JSX.Element {
             className="chat__input"
             rows={1}
             value={draft}
-            placeholder="Message the agent…"
+            placeholder="Message SeeMO…"
             spellCheck={false}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {

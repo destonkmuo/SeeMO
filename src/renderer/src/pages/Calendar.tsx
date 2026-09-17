@@ -1,12 +1,18 @@
 import { useMemo, useState } from 'react'
+import { LOCAL_CALENDAR_ID, TODO_KIND_COLOR, type CalendarItem } from '../planner'
 import { useAppStore } from '../store/appStore'
 import {
+  CALENDAR_COLORS,
   addDays,
   addMonths,
+  defaultCalendarColor,
+  expandItemDates,
   formatDayLabel,
   formatTime,
-  formatTimeRange,
   fromISODate,
+  isTodoDone,
+  itemEndTime,
+  itemStartTime,
   layoutDayColumns,
   minutesOf,
   monthGrid,
@@ -21,9 +27,17 @@ import PlannerDialog, {
   type DialogKind,
   type PlannerDialogTarget
 } from '../components/PlannerDialog'
-import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from '../components/icons'
+import {
+  CalendarIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ListTodoIcon,
+  PlusIcon,
+  TaskIcon,
+  XIcon
+} from '../components/icons'
 
-type View = 'month' | 'week' | 'day'
+type EntryKind = 'event' | 'task' | 'todo'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTH_CELL_LIMIT = 3
@@ -32,25 +46,83 @@ const HOUR_HEIGHT = 48
 interface DayEntry {
   key: string
   title: string
-  kind: 'event' | 'activity' | 'todo'
+  kind: EntryKind
   done: boolean
+  color: string
   startMin: number | null
   endMin: number | null
   location: string
+  recurring: boolean
+  readOnly: boolean
   open: () => void
+}
+
+interface SourceView {
+  id: string
+  name: string
+  color: string
+  enabled: boolean
+  readOnly: boolean
+  error: string | null
 }
 
 function Calendar(): React.JSX.Element {
   const calendarItems = useAppStore((state) => state.calendarItems)
   const todos = useAppStore((state) => state.todos)
+  const subscriptions = useAppStore((state) => state.subscriptions)
+  const localCalendarColor = useAppStore((state) => state.localCalendarColor)
   const plannerReady = useAppStore((state) => state.plannerReady)
   const plannerError = useAppStore((state) => state.plannerError)
+  const openNav = useAppStore((state) => state.openNav)
 
-  const [view, setView] = useState<View>('month')
-  const [cursor, setCursor] = useState(() => todayISO())
+  const view = useAppStore((state) => state.calendarView)
+  const setView = useAppStore((state) => state.setCalendarView)
+  const cursor = useAppStore((state) => state.calendarCursor)
+  const setCursor = useAppStore((state) => state.setCalendarCursor)
+
   const [dialog, setDialog] = useState<PlannerDialogTarget | null>(null)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
 
   const today = todayISO()
+  const openCount = todos.filter((t) => !isTodoDone(t)).length
+
+  const sources: SourceView[] = useMemo(
+    () => [
+      {
+        id: LOCAL_CALENDAR_ID,
+        name: 'SeeMO',
+        color: localCalendarColor,
+        enabled: true,
+        readOnly: false,
+        error: null
+      },
+      ...subscriptions.map((sub) => ({
+        id: sub.id,
+        name: sub.name,
+        color: sub.color,
+        enabled: sub.enabled,
+        readOnly: true,
+        error: sub.error
+      }))
+    ],
+    [localCalendarColor, subscriptions]
+  )
+
+  // Expand every visible calendar (recurrences included) across the range the
+  // current view can show, so month overflow cells are covered too.
+  const [rangeStart, rangeEnd] = useMemo(() => {
+    if (view === 'month') {
+      const { year, month } = parseISODate(cursor)
+      const cells = monthGrid(year, month)
+      return [cells[0], cells[cells.length - 1]] as const
+    }
+    if (view === 'week') {
+      const week = weekRange(cursor)
+      return [week[0], week[6]] as const
+    }
+    return [cursor, cursor] as const
+  }, [view, cursor])
 
   const entriesByDate = useMemo(() => {
     const map = new Map<string, DayEntry[]>()
@@ -59,31 +131,52 @@ function Calendar(): React.JSX.Element {
       if (list) list.push(entry)
       else map.set(date, [entry])
     }
-    for (const item of calendarItems) {
-      push(item.date, {
-        key: `item-${item.id}`,
-        title: item.title || 'Untitled',
-        kind: item.kind,
-        done: false,
-        startMin: item.startTime ? minutesOf(item.startTime) : null,
-        endMin: item.endTime ? minutesOf(item.endTime) : null,
-        location: item.location,
-        open: () => setDialog({ mode: 'edit-item', item })
-      })
+
+    const itemsFor = (id: string): CalendarItem[] =>
+      id === LOCAL_CALENDAR_ID
+        ? calendarItems
+        : (subscriptions.find((s) => s.id === id)?.events ?? [])
+
+    for (const source of sources) {
+      if (!isSourceVisible(source, hidden)) continue
+      for (const item of itemsFor(source.id)) {
+        for (const occurrence of expandItemDates(item, rangeStart, rangeEnd)) {
+          const start = itemStartTime(item)
+          const end = itemEndTime(item)
+          push(occurrence, {
+            key: `${item.id}@${occurrence}`,
+            title: item.summary || 'Untitled',
+            kind: 'event',
+            done: false,
+            color: source.color,
+            startMin: start ? minutesOf(start) : null,
+            endMin: end ? minutesOf(end) : null,
+            location: item.location,
+            recurring: item.recurrence.length > 0,
+            readOnly: source.readOnly,
+            open: () => (source.readOnly ? undefined : setDialog({ mode: 'edit-item', item }))
+          })
+        }
+      }
     }
+
     for (const todo of todos) {
-      if (!todo.date) continue
-      push(todo.date, {
+      if (!todo.due) continue
+      push(todo.due, {
         key: `todo-${todo.id}`,
         title: todo.title || 'Untitled',
-        kind: 'todo',
-        done: todo.done,
+        kind: todo.kind,
+        done: isTodoDone(todo),
+        color: TODO_KIND_COLOR[todo.kind],
         startMin: todo.time ? minutesOf(todo.time) : null,
         endMin: null,
         location: todo.location,
+        recurring: false,
+        readOnly: false,
         open: () => setDialog({ mode: 'edit-todo', item: todo })
       })
     }
+
     // All-day first, then by start time.
     for (const list of map.values()) {
       list.sort((a, b) => {
@@ -93,7 +186,9 @@ function Calendar(): React.JSX.Element {
       })
     }
     return map
-  }, [calendarItems, todos])
+  }, [sources, calendarItems, subscriptions, todos, rangeStart, rangeEnd, hidden])
+
+  const configured = sources.filter((s) => s.id !== LOCAL_CALENDAR_ID)
 
   const shift = (delta: number): void => {
     if (view === 'month') {
@@ -117,9 +212,7 @@ function Calendar(): React.JSX.Element {
       const a = parseISODate(start)
       const b = parseISODate(end)
       const left = new Date(a.year, a.month - 1, 1).toLocaleString('en-US', { month: 'short' })
-      const right = new Date(b.year, b.month - 1, 1).toLocaleString('en-US', {
-        month: 'short'
-      })
+      const right = new Date(b.year, b.month - 1, 1).toLocaleString('en-US', { month: 'short' })
       return a.month === b.month
         ? `${left} ${a.year}`
         : `${left} ${a.day} – ${right} ${b.day}, ${b.year}`
@@ -130,6 +223,11 @@ function Calendar(): React.JSX.Element {
 
   const openCreate = (kind: DialogKind, date: string, startTime?: string | null): void => {
     setDialog({ mode: 'create', kind, date, startTime: startTime ?? null })
+  }
+
+  const openDay = (date: string): void => {
+    setCursor(date)
+    setView('day')
   }
 
   return (
@@ -146,11 +244,7 @@ function Calendar(): React.JSX.Element {
             >
               <ChevronLeftIcon size={16} />
             </button>
-            <button
-              type="button"
-              className="cal__navbtn cal__today"
-              onClick={() => setCursor(today)}
-            >
+            <button type="button" className="cal__navbtn" onClick={() => setCursor(today)}>
               Today
             </button>
             <button
@@ -174,6 +268,42 @@ function Calendar(): React.JSX.Element {
               </button>
             ))}
           </div>
+          <div className="cal__cals">
+            <button
+              type="button"
+              className={`btn btn--ghost${panelOpen ? ' is-active' : ''}`}
+              aria-expanded={panelOpen}
+              title="Calendars"
+              onClick={() => setPanelOpen((open) => !open)}
+            >
+              <CalendarIcon size={15} />
+              Calendars
+            </button>
+            {panelOpen && (
+              <CalendarsPanel
+                sources={sources}
+                hidden={hidden}
+                onToggleHidden={(id) =>
+                  setHidden((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(id)) next.delete(id)
+                    else next.add(id)
+                    return next
+                  })
+                }
+                onClose={() => setPanelOpen(false)}
+              />
+            )}
+          </div>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            title="Open the todo list"
+            onClick={() => openNav('todo')}
+          >
+            <ListTodoIcon size={15} />
+            Todos{openCount > 0 ? ` (${openCount})` : ''}
+          </button>
           <button
             type="button"
             className="btn btn--primary"
@@ -197,10 +327,7 @@ function Calendar(): React.JSX.Element {
           cursor={cursor}
           today={today}
           entriesByDate={entriesByDate}
-          onOpenDay={(date) => {
-            setCursor(date)
-            setView('day')
-          }}
+          onOpenDay={openDay}
           onCreate={(date) => openCreate('event', date)}
         />
       ) : (
@@ -210,11 +337,27 @@ function Calendar(): React.JSX.Element {
           entriesByDate={entriesByDate}
           showWeekday={view === 'week'}
           onCreate={(date, startTime) => openCreate('event', date, startTime)}
-          onOpenDay={(date) => {
-            setCursor(date)
-            setView('day')
-          }}
+          onOpenDay={openDay}
         />
+      )}
+
+      {configured.length > 0 && (
+        <p className="cal__legend">
+          {sources.map((source) => (
+            <span key={source.id} className="cal__legend-item">
+              <span className="cal__legend-dot" style={{ background: source.color }} />
+              {source.name}
+            </span>
+          ))}
+          <span className="cal__legend-item">
+            <span className="cal__legend-dot" style={{ background: TODO_KIND_COLOR.task }} />
+            Task
+          </span>
+          <span className="cal__legend-item">
+            <span className="cal__legend-dot" style={{ background: TODO_KIND_COLOR.todo }} />
+            Todo
+          </span>
+        </p>
       )}
 
       {dialog && <PlannerDialog target={dialog} onClose={() => setDialog(null)} />}
@@ -222,8 +365,190 @@ function Calendar(): React.JSX.Element {
   )
 }
 
-function chipClass(entry: Pick<DayEntry, 'kind' | 'done'>): string {
-  return `cal-chip cal-chip--${entry.kind}${entry.done ? ' is-done' : ''}`
+/** Color/visibility/add controls for every calendar. */
+function CalendarsPanel({
+  sources,
+  hidden,
+  onToggleHidden,
+  onClose
+}: {
+  sources: SourceView[]
+  hidden: Set<string>
+  onToggleHidden: (id: string) => void
+  onClose: () => void
+}): React.JSX.Element {
+  const subscriptions = useAppStore((state) => state.subscriptions)
+  const localCalendarColor = useAppStore((state) => state.localCalendarColor)
+  const setLocalCalendarColor = useAppStore((state) => state.setLocalCalendarColor)
+  const updateSubscription = useAppStore((state) => state.updateSubscription)
+  const removeSubscription = useAppStore((state) => state.removeSubscription)
+  const refreshSubscription = useAppStore((state) => state.refreshSubscription)
+  const addSubscription = useAppStore((state) => state.addSubscription)
+
+  const [name, setName] = useState('')
+  const [url, setUrl] = useState('')
+  const [color, setColor] = useState(() => defaultCalendarColor(subscriptions.length + 1))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const subscribe = async (): Promise<void> => {
+    if (!url.trim()) {
+      setError('Paste an .ics feed URL first.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await addSubscription({ name, url, color })
+      setName('')
+      setUrl('')
+      setColor(defaultCalendarColor(subscriptions.length + 2))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not subscribe.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="cal-cals__backdrop" onClick={onClose} />
+      <div className="cal-cals" role="dialog" aria-label="Calendars">
+        <div className="cal-cals__head">
+          <span>Calendars</span>
+          <button type="button" className="dlg__x" aria-label="Close" onClick={onClose}>
+            <XIcon size={14} />
+          </button>
+        </div>
+
+        {sources.map((source) => {
+          const sub = subscriptions.find((s) => s.id === source.id)
+          const swatch = sub ? sub.color : localCalendarColor
+          return (
+            <div key={source.id} className="cal-cals__row">
+              <button
+                type="button"
+                className={`cal-cals__toggle${hidden.has(source.id) ? ' is-off' : ''}`}
+                aria-pressed={!hidden.has(source.id)}
+                title={hidden.has(source.id) ? 'Show' : 'Hide'}
+                onClick={() => onToggleHidden(source.id)}
+              >
+                <span className="cal-cals__dot" style={{ background: swatch }} />
+              </button>
+              <span className="cal-cals__name">
+                {source.name}
+                {source.readOnly && <em className="cal-cals__badge">subscribed</em>}
+              </span>
+              <select
+                className="cal-cals__color"
+                aria-label={`${source.name} color`}
+                value={swatch}
+                onChange={(event) =>
+                  sub
+                    ? updateSubscription(sub.id, { color: event.target.value })
+                    : setLocalCalendarColor(event.target.value)
+                }
+              >
+                {CALENDAR_COLORS.map((hex) => (
+                  <option key={hex} value={hex}>
+                    {hex}
+                  </option>
+                ))}
+              </select>
+              {sub && (
+                <>
+                  <button
+                    type="button"
+                    className="cal-cals__icon"
+                    title="Refresh"
+                    aria-label={`Refresh ${sub.name}`}
+                    onClick={() => void refreshSubscription(sub.id)}
+                  >
+                    ⟳
+                  </button>
+                  <button
+                    type="button"
+                    className="cal-cals__icon cal-cals__icon--danger"
+                    title="Unsubscribe"
+                    aria-label={`Unsubscribe ${sub.name}`}
+                    onClick={() => removeSubscription(sub.id)}
+                  >
+                    <XIcon size={13} />
+                  </button>
+                </>
+              )}
+              {sub?.error && <span className="cal-cals__error">{sub.error}</span>}
+            </div>
+          )
+        })}
+
+        <div className="cal-cals__add">
+          <span className="dlg__label">Subscribe to a calendar</span>
+          <input
+            className="dlg__input"
+            placeholder="Name (e.g. CS Classes)"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+          <input
+            className="dlg__input"
+            placeholder="https://…/basic.ics"
+            value={url}
+            spellCheck={false}
+            onChange={(event) => setUrl(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void subscribe()
+            }}
+          />
+          <div className="cal-cals__add-row">
+            <div className="cal-cals__swatches" role="group" aria-label="Color">
+              {CALENDAR_COLORS.map((hex) => (
+                <button
+                  key={hex}
+                  type="button"
+                  className={`cal-cals__swatch${color === hex ? ' is-active' : ''}`}
+                  style={{ background: hex }}
+                  aria-label={hex}
+                  onClick={() => setColor(hex)}
+                />
+              ))}
+            </div>
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={busy}
+              onClick={() => void subscribe()}
+            >
+              {busy ? 'Subscribing…' : 'Subscribe'}
+            </button>
+          </div>
+          <p className="dlg__hint">
+            Read-only http(s) .ics feed. Recurring classes come through as weekly events.
+          </p>
+          {error && (
+            <p className="cal-cals__error" role="alert">
+              {error}
+            </p>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+/** A calendar draws when it is enabled and not hidden by the user. */
+function isSourceVisible(source: SourceView, hidden: Set<string>): boolean {
+  return source.enabled && !hidden.has(source.id)
+}
+
+function entryClass(entry: DayEntry): string {
+  return `cal-chip cal-chip--${entry.kind}${entry.done ? ' is-done' : ''}${entry.readOnly ? ' is-readonly' : ''}`
+}
+
+function EntryIcon({ kind }: { kind: EntryKind }): React.JSX.Element {
+  if (kind === 'task') return <TaskIcon size={11} />
+  if (kind === 'todo') return <ListTodoIcon size={11} />
+  return <CalendarIcon size={11} />
 }
 
 function MonthView({
@@ -266,7 +591,8 @@ function MonthView({
                 <button
                   key={entry.key}
                   type="button"
-                  className={chipClass(entry)}
+                  className={entryClass(entry)}
+                  style={{ background: entry.color }}
                   title={`${entry.title}${entry.location ? ` · ${entry.location}` : ''}`}
                   onClick={(event) => {
                     event.stopPropagation()
@@ -279,6 +605,10 @@ function MonthView({
                     </span>
                   )}
                   <span className="cal-chip__title">{entry.title}</span>
+                  {entry.recurring && <span className="cal-chip__repeat">⟳</span>}
+                  <span className="cal-chip__icon">
+                    <EntryIcon kind={entry.kind} />
+                  </span>
                 </button>
               ))}
               {extra > 0 && (
@@ -323,9 +653,7 @@ function TimeGridView({
   const slotTime = (event: React.MouseEvent<HTMLDivElement>): string => {
     const rect = event.currentTarget.getBoundingClientRect()
     const ratio = Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 0.999)
-    const total = Math.floor(ratio * 24 * 60)
-    const snapped = Math.floor(total / 30) * 30
-    return toTimeString(snapped)
+    return toTimeString(Math.floor((ratio * 24 * 60) / 30) * 30)
   }
 
   return (
@@ -361,13 +689,17 @@ function TimeGridView({
                 <button
                   key={entry.key}
                   type="button"
-                  className={chipClass(entry)}
+                  className={entryClass(entry)}
+                  style={{ background: entry.color }}
                   onClick={(event) => {
                     event.stopPropagation()
                     entry.open()
                   }}
                 >
                   <span className="cal-chip__title">{entry.title}</span>
+                  <span className="cal-chip__icon">
+                    <EntryIcon kind={entry.kind} />
+                  </span>
                 </button>
               ))}
             </div>
@@ -424,18 +756,25 @@ function TimeGridView({
                         top: `${top}%`,
                         height: `calc(${heightPct}% - 2px)`,
                         left: `calc(${(block.lane / block.lanes) * 100}% + 2px)`,
-                        width: `calc(${100 / block.lanes}% - 4px)`
+                        width: `calc(${100 / block.lanes}% - 4px)`,
+                        background: block.item.color
                       }}
-                      title={`${block.item.title} · ${formatTimeRange(startLabel, null)}`}
+                      title={`${block.item.title} · ${formatTimeRangeSafe(startLabel)}`}
                       onClick={(event) => {
                         event.stopPropagation()
                         block.item.open()
                       }}
                     >
-                      <span className="cal-block__title">{block.item.title}</span>
+                      <span className="cal-block__title">
+                        {block.item.recurring && '⟳ '}
+                        {block.item.title}
+                      </span>
                       {block.item.location && (
                         <span className="cal-block__meta">{block.item.location}</span>
                       )}
+                      <span className="cal-block__icon">
+                        <EntryIcon kind={block.item.kind} />
+                      </span>
                     </button>
                   )
                 })}
@@ -446,6 +785,10 @@ function TimeGridView({
       </div>
     </div>
   )
+}
+
+function formatTimeRangeSafe(start: string): string {
+  return formatTime(start)
 }
 
 export default Calendar

@@ -4,10 +4,10 @@ import type { GithubStatus } from '../../../preload/github'
 
 const CORE_OPTIONS: { key: CoreState; label: string; hint: string }[] = [
   { key: 'sleep', label: 'Sleep', hint: 'Dormant' },
+  { key: 'summoned', label: 'Summoned', hint: 'Just heard the wake word' },
   { key: 'idle', label: 'Idle', hint: 'Listening' },
   { key: 'working', label: 'Working', hint: 'On an objective' },
-  { key: 'speaking', label: 'Speaking', hint: 'Talking back' },
-  { key: 'summoned', label: 'Summoned', hint: 'Just heard the wake word' }
+  { key: 'speaking', label: 'Speaking', hint: 'Talking back' }
 ]
 
 function GithubBackup(): React.JSX.Element {
@@ -253,7 +253,7 @@ function Settings(): React.JSX.Element {
         <GithubBackup />
 
         <section className="settings__section">
-          <h2 className="settings__section-title">Agent core</h2>
+          <h2 className="settings__section-title">SeeMO core</h2>
           <div className="settings__row">
             {CORE_OPTIONS.map((option) => (
               <span
@@ -271,7 +271,7 @@ function Settings(): React.JSX.Element {
         </section>
 
         <section className="settings__section">
-          <h2 className="settings__section-title">Background agent</h2>
+          <h2 className="settings__section-title">Background SeeMO</h2>
           <label className="settings__check">
             <input
               type="checkbox"
@@ -281,7 +281,7 @@ function Settings(): React.JSX.Element {
             Always listening
           </label>
           <p className="settings__note">
-            When on, the agent answers what you say even away from the Agent page, and its replies
+            When on, SeeMO answers what you say even away from the SeeMO page, and its replies
             surface in a bubble at the bottom-right. The mic pipeline itself always runs; this only
             controls background responses.
           </p>

@@ -22,8 +22,8 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'graph', label: 'Graph', icon: GraphIcon },
   { key: 'todo', label: 'Todo', icon: ListTodoIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
-  { key: 'agent', label: 'AI Agent', icon: AgentIcon },
-  { key: 'activity', label: 'AI Activity', icon: ActivityIcon },
+  { key: 'agent', label: 'SeeMO', icon: AgentIcon },
+  { key: 'activity', label: 'SeeMO Activity', icon: ActivityIcon },
   { key: 'misc', label: 'Misc', icon: MoreIcon },
   { key: 'settings', label: 'Settings', icon: SettingsIcon }
 ]

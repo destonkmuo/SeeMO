@@ -6,6 +6,8 @@ interface VoiceApi {
   onVoiceTranscript: (callback: (text: string) => void) => () => void
   onVoiceWake: (callback: () => void) => () => void
   speak: (text: string) => Promise<boolean>
+  importAlarmSound: () => Promise<{ name: string; url: string } | null>
+  fetchIcs: (url: string) => Promise<string>
 }
 
 interface AppApi extends VoiceApi {

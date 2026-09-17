@@ -3,10 +3,10 @@ import { useAppStore } from '../store/appStore'
 import { XIcon } from './icons'
 
 /**
- * Floating agent reply card, pinned to the bottom-right of the screen.
- * Appears when background listening is on and a fresh agent response arrives
- * while the user is anywhere but the Agent tab. Dismissing or opening the
- * Agent tab marks it seen so it never nags about old messages.
+ * Floating SeeMO reply card, pinned to the bottom-right of the screen.
+ * Appears when background listening is on and a fresh response arrives while
+ * the user is anywhere but the SeeMO tab. Dismissing or opening the SeeMO tab
+ * marks it seen so it never nags about old messages.
  */
 function AgentBubble(): React.JSX.Element | null {
   const backgroundListening = useAppStore((state) => state.backgroundListening)
@@ -33,7 +33,7 @@ function AgentBubble(): React.JSX.Element | null {
   return (
     <aside className="agent-bubble" aria-live="polite" aria-label="Agent response">
       <div className="agent-bubble__head">
-        <span className="agent-bubble__title">Agent</span>
+        <span className="agent-bubble__title">SeeMO</span>
         <button
           type="button"
           className="chat__clear"
@@ -53,7 +53,7 @@ function AgentBubble(): React.JSX.Element | null {
           openNav('agent')
         }}
       >
-        Open agent
+        Open SeeMO
       </button>
     </aside>
   )

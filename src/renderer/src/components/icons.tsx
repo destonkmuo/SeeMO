@@ -217,3 +217,46 @@ export function ClearAllIcon(props: IconProps): React.JSX.Element {
     </IconBase>
   )
 }
+
+export function TaskIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <rect x="8" y="2" width="8" height="4" rx="1" />
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <path d="m9 14 2 2 4-4" />
+    </IconBase>
+  )
+}
+
+export function AlarmIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="13" r="7" />
+      <path d="M12 10v3l2 2" />
+      <path d="M5 4 3 6" />
+      <path d="m19 4 2 2" />
+    </IconBase>
+  )
+}
+
+export function TimerIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <path d="M6 2h12" />
+      <path d="M6 22h12" />
+      <path d="M8 2v4l4 4 4-4V2" />
+      <path d="M8 22v-4l4-4 4 4v4" />
+    </IconBase>
+  )
+}
+
+export function StopwatchIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="13" r="7" />
+      <path d="M12 10v3l2 2" />
+      <path d="M9 2h6" />
+      <path d="M12 2v4" />
+    </IconBase>
+  )
+}

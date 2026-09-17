@@ -36,6 +36,9 @@ const api = {
   },
   vault,
   speak: (text: string): Promise<boolean> => ipcRenderer.invoke('voice:speak', text),
+  importAlarmSound: (): Promise<{ name: string; url: string } | null> =>
+    ipcRenderer.invoke('alarm:importSound'),
+  fetchIcs: (url: string): Promise<string> => ipcRenderer.invoke('calendar:fetchIcs', url),
   github: {
     status: () => ipcRenderer.invoke('github:status'),
     createRepo: (name: string, isPrivate: boolean) =>

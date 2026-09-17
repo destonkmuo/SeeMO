@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import PlannerDialog, { type PlannerDialogTarget } from '../components/PlannerDialog'
-import { PlusIcon, TrashIcon } from '../components/icons'
+import { CalendarIcon, ListTodoIcon, PlusIcon, TaskIcon, TrashIcon } from '../components/icons'
 import { useAppStore } from '../store/appStore'
-import { formatDayLabel, formatTime, todayISO, type TodoItem } from '../planner'
+import { formatDayLabel, formatTime, isTodoDone, todayISO, type TodoItem } from '../planner'
 
 function metaLine(todo: TodoItem): string {
   const parts: string[] = []
-  if (todo.date) {
-    parts.push(formatDayLabel(todo.date))
+  if (todo.due) {
+    parts.push(formatDayLabel(todo.due))
     if (todo.time) parts.push(formatTime(todo.time))
   }
   if (todo.location.trim()) parts.push(todo.location.trim())
@@ -23,24 +23,45 @@ function TodoRow({
 }): React.JSX.Element {
   const toggleTodo = useAppStore((state) => state.toggleTodo)
   const deleteTodo = useAppStore((state) => state.deleteTodo)
+  const openDay = useAppStore((state) => state.openDay)
   const meta = metaLine(todo)
+  const done = isTodoDone(todo)
   return (
-    <div className={`todo-row${todo.done ? ' is-done' : ''}`}>
+    <div className={`todo-row${done ? ' is-done' : ''}`}>
       <button
         type="button"
         className="todo-check"
         role="checkbox"
-        aria-checked={todo.done}
-        aria-label={todo.done ? `Reopen ${todo.title}` : `Complete ${todo.title}`}
+        aria-checked={done}
+        aria-label={done ? `Reopen ${todo.title}` : `Complete ${todo.title}`}
         onClick={() => toggleTodo(todo.id)}
       >
         <span className="todo-check__box" />
       </button>
       <button type="button" className="todo-main" onClick={() => onEdit(todo)}>
-        <span className="todo-title">{todo.title.trim() || 'Untitled'}</span>
+        <span className="todo-title">
+          <span
+            className={`todo-kind todo-kind--${todo.kind}`}
+            title={todo.kind === 'task' ? 'Task' : 'Todo'}
+          >
+            {todo.kind === 'task' ? <TaskIcon size={12} /> : <ListTodoIcon size={12} />}
+          </span>
+          {todo.title.trim() || 'Untitled'}
+        </span>
         {meta && <span className="todo-meta">{meta}</span>}
-        {todo.description.trim() && <span className="todo-desc">{todo.description.trim()}</span>}
+        {todo.notes.trim() && <span className="todo-desc">{todo.notes.trim()}</span>}
       </button>
+      {todo.due && (
+        <button
+          type="button"
+          className="icon-btn"
+          title={`View ${formatDayLabel(todo.due)} on calendar`}
+          aria-label={`View on calendar`}
+          onClick={() => openDay(todo.due as string)}
+        >
+          <CalendarIcon size={15} />
+        </button>
+      )}
       <button
         type="button"
         className="icon-btn icon-btn--danger"
@@ -61,12 +82,12 @@ function Todo(): React.JSX.Element {
   const [dialog, setDialog] = useState<PlannerDialogTarget | null>(null)
 
   const today = todayISO()
-  const open = todos.filter((t) => !t.done).sort((a, b) => b.updatedAt - a.updatedAt)
-  const overdue = open.filter((t) => t.date !== null && t.date < today)
-  const dueToday = open.filter((t) => t.date === today)
-  const upcoming = open.filter((t) => t.date !== null && t.date > today)
-  const unscheduled = open.filter((t) => t.date === null)
-  const done = todos.filter((t) => t.done).sort((a, b) => b.updatedAt - a.updatedAt)
+  const open = todos.filter((t) => !isTodoDone(t)).sort((a, b) => b.updatedAt - a.updatedAt)
+  const overdue = open.filter((t) => t.due !== null && t.due < today)
+  const dueToday = open.filter((t) => t.due === today)
+  const upcoming = open.filter((t) => t.due !== null && t.due > today)
+  const unscheduled = open.filter((t) => t.due === null)
+  const done = todos.filter((t) => isTodoDone(t)).sort((a, b) => b.updatedAt - a.updatedAt)
 
   const groups: { title: string; items: TodoItem[]; className?: string }[] = [
     { title: 'Overdue', items: overdue, className: 'todo-group--overdue' },
@@ -81,11 +102,11 @@ function Todo(): React.JSX.Element {
       <div className="todo__inner">
         <header className="todo__header">
           <div>
-            <h1 className="todo__title">Todo</h1>
+            <h1 className="todo__title">Tasks &amp; Todos</h1>
             <p className="todo__subtitle">
               {open.length === 0
                 ? 'All clear.'
-                : `${open.length} open ${open.length === 1 ? 'task' : 'tasks'}`}
+                : `${open.length} open · tasks created on the calendar land here`}
             </p>
           </div>
           <button

@@ -1,10 +1,19 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { registerAlarmHandlers, registerAlarmScheme } from './alarm'
+import { registerCalendarHandlers } from './calendar'
 import { startVoice, stopVoice, speakResponse } from './voice'
 import { registerGithubHandlers } from './github'
 import { registerVaultHandlers } from './vault'
 import icon from '../../resources/icon.png?asset'
+
+// Alarm/timer sounds must be allowed to start from timer callbacks (no user
+// gesture at ring time), so disable the autoplay gate for this app window.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
+// Must be declared before the app is ready so the scheme is privileged.
+registerAlarmScheme()
 
 function createWindow(): void {
   // Create the browser window.
@@ -57,13 +66,19 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
-  // Renderer -> pipeline: speak an agent reply aloud via Piper TTS.
+  // Renderer -> pipeline: speak a SeeMO reply aloud via Piper TTS.
   ipcMain.handle('voice:speak', (_event, text: unknown) =>
     speakResponse(typeof text === 'string' ? text : '')
   )
 
   // Markdown vault: one .md file per note, readable outside the app.
   registerVaultHandlers()
+
+  // Custom alarm sounds: import picker + seemo-alarm:// streaming.
+  registerAlarmHandlers()
+
+  // Calendar subscriptions: fetch external ICS feeds for the renderer.
+  registerCalendarHandlers()
 
   // GitHub backup for the vault (status/create/sync via gh + git).
   registerGithubHandlers()

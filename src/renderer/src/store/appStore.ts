@@ -1,13 +1,22 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { noteFileBase, orderedNotes, titleFromFileName, uniqueFileName } from '../notes'
+import { parseIcs } from '../ical'
 import {
+  CALENDARS_FILE,
+  CALENDAR_COLORS,
   CALENDAR_FILE,
   TODO_FILE,
-  parseCalendarItems,
+  calendarItemFromDraft,
+  draftFromItem,
+  parseCalendarData,
+  parseSubscriptions,
   parseTodoItems,
+  todayISO,
+  todoItemFromDraft,
   type CalendarDraft,
   type CalendarItem,
+  type CalendarSubscription,
   type TodoDraft,
   type TodoItem
 } from '../planner'
@@ -64,6 +73,9 @@ export function clampSplitRatio(ratio: unknown): number {
   return Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, ratio))
 }
 
+/** Calendar display mode. Kept transient (not persisted). */
+export type CalendarView = 'month' | 'week' | 'day'
+
 interface AppState {
   coreState: CoreState
   notes: Note[]
@@ -85,6 +97,12 @@ interface AppState {
   splitTabId: string | null
   /** Left-pane share of split-view width, 0..1. */
   splitRatio: number
+  calendarView: CalendarView
+  calendarCursor: string
+  alarmTime: string | null
+  alarmEnabled: boolean
+  alarmSoundId: string
+  customAlarm: { name: string; url: string } | null
   setCoreState: (state: CoreState) => void
   setAutoSync: (enabled: boolean) => void
   setBackgroundListening: (enabled: boolean) => void
@@ -95,6 +113,13 @@ interface AppState {
   markAgentSeen: () => void
   setQuery: (query: string) => void
   setActiveTab: (id: string) => void
+  setCalendarView: (view: CalendarView) => void
+  setCalendarCursor: (date: string) => void
+  openDay: (date: string) => void
+  setAlarmTime: (time: string | null) => void
+  setAlarmEnabled: (enabled: boolean) => void
+  setAlarmSoundId: (id: string) => void
+  setCustomAlarm: (custom: { name: string; url: string } | null) => void
   openNav: (kind: NavKey) => void
   openNote: (noteId: string) => void
   closeTab: (id: string) => void
@@ -113,16 +138,27 @@ interface AppState {
   clearChat: () => void
   calendarItems: CalendarItem[]
   todos: TodoItem[]
+  subscriptions: CalendarSubscription[]
+  localCalendarColor: string
   plannerReady: boolean
   plannerError: string | null
   loadPlanner: () => Promise<void>
   addCalendarItem: (draft: CalendarDraft) => void
   updateCalendarItem: (id: string, patch: Partial<CalendarDraft>) => void
   deleteCalendarItem: (id: string) => void
-  addTodo: (draft: TodoDraft) => void
-  updateTodo: (id: string, patch: Partial<TodoDraft & { done: boolean }>) => void
+  addTodo: (draft: TodoDraft) => string
+  updateTodo: (id: string, patch: Partial<TodoDraft> & { done?: boolean }) => void
   toggleTodo: (id: string) => void
   deleteTodo: (id: string) => void
+  setLocalCalendarColor: (color: string) => void
+  addSubscription: (input: { name: string; url: string; color: string }) => Promise<string>
+  updateSubscription: (
+    id: string,
+    patch: Partial<Pick<CalendarSubscription, 'name' | 'color' | 'enabled'>>
+  ) => void
+  removeSubscription: (id: string) => void
+  refreshSubscription: (id: string) => Promise<void>
+  refreshAllSubscriptions: () => Promise<void>
 }
 
 function uid(): string {
@@ -147,6 +183,55 @@ const initialTab = navTab('home')
 /** Guard so StrictMode double-mounts and manual refreshes share one load. */
 let vaultInitPromise: Promise<void> | null = null
 
+/**
+ * Restore the alarm sound selection. Custom entries from before the file
+ * protocol existed stored a data URL; those are dropped (and the selection
+ * reset) so the UI never claims "custom" while playing a built-in sound.
+ */
+function restoreAlarmSound(saved: { alarmSoundId?: unknown; customAlarm?: unknown }): {
+  alarmSoundId: string
+  customAlarm: { name: string; url: string } | null
+} {
+  const raw = saved.customAlarm
+  const customAlarm =
+    raw &&
+    typeof raw === 'object' &&
+    typeof (raw as { name?: unknown }).name === 'string' &&
+    typeof (raw as { url?: unknown }).url === 'string'
+      ? { name: (raw as { name: string }).name, url: (raw as { url: string }).url }
+      : null
+  const requested =
+    typeof saved.alarmSoundId === 'string' && saved.alarmSoundId.length > 0
+      ? saved.alarmSoundId
+      : 'classic'
+  const alarmSoundId = requested === 'custom' && !customAlarm ? 'classic' : requested
+  return { alarmSoundId, customAlarm }
+}
+
+type PersistSet = (partial: Partial<AppState>) => void
+
+/** Fire-and-forget vault writes; surface failures in the planner banner. */
+function saveCalendarFile(items: CalendarItem[], set: PersistSet): void {
+  void window.api.vault.writeJson(CALENDAR_FILE, items).catch((error) => {
+    console.error('[planner] failed to save calendar.json', error)
+    set({ plannerError: 'Could not save calendar.json.' })
+  })
+}
+
+function saveTodoFile(todos: TodoItem[], set: PersistSet): void {
+  void window.api.vault.writeJson(TODO_FILE, todos).catch((error) => {
+    console.error('[planner] failed to save todo.json', error)
+    set({ plannerError: 'Could not save todo.json.' })
+  })
+}
+
+function saveCalendarsFile(subscriptions: CalendarSubscription[], set: PersistSet): void {
+  void window.api.vault.writeJson(CALENDARS_FILE, subscriptions).catch((error) => {
+    console.error('[planner] failed to save calendars.json', error)
+    set({ plannerError: 'Could not save calendars.json.' })
+  })
+}
+
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -163,6 +248,8 @@ export const useAppStore = create<AppState>()(
       messages: [],
       calendarItems: [],
       todos: [],
+      subscriptions: [],
+      localCalendarColor: CALENDAR_COLORS[0],
       plannerReady: false,
       plannerError: null,
       autoSync: false,
@@ -172,6 +259,12 @@ export const useAppStore = create<AppState>()(
       sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
       splitTabId: null,
       splitRatio: SPLIT_RATIO_DEFAULT,
+      calendarView: 'month',
+      calendarCursor: todayISO(),
+      alarmTime: null,
+      alarmEnabled: false,
+      alarmSoundId: 'classic',
+      customAlarm: null,
       setCoreState: (coreState) => set({ coreState }),
       setAutoSync: (autoSync) => set({ autoSync }),
       setBackgroundListening: (backgroundListening) => set({ backgroundListening }),
@@ -189,6 +282,16 @@ export const useAppStore = create<AppState>()(
         }),
       setQuery: (query) => set({ query }),
       setActiveTab: (id) => set({ activeTabId: id }),
+      setCalendarView: (calendarView) => set({ calendarView }),
+      setCalendarCursor: (calendarCursor) => set({ calendarCursor }),
+      openDay: (date) => {
+        set({ calendarView: 'day', calendarCursor: date })
+        get().openNav('calendar')
+      },
+      setAlarmTime: (alarmTime) => set({ alarmTime }),
+      setAlarmEnabled: (alarmEnabled) => set({ alarmEnabled }),
+      setAlarmSoundId: (alarmSoundId) => set({ alarmSoundId }),
+      setCustomAlarm: (customAlarm) => set({ customAlarm }),
       openNav: (kind) =>
         set((state) => {
           const existing = state.tabs.find((t) => t.kind === kind)
@@ -467,80 +570,183 @@ export const useAppStore = create<AppState>()(
       clearChat: () => set({ messages: [] }),
       loadPlanner: async () => {
         try {
-          const [calendarRaw, todoRaw] = await Promise.all([
+          const [calendarRaw, todoRaw, calendarsRaw] = await Promise.all([
             window.api.vault.readJson(CALENDAR_FILE),
-            window.api.vault.readJson(TODO_FILE)
+            window.api.vault.readJson(TODO_FILE),
+            window.api.vault.readJson(CALENDARS_FILE)
           ])
+          const { events, migratedTodos } = parseCalendarData(calendarRaw)
+          const byId = new Map(parseTodoItems(todoRaw).map((todo) => [todo.id, todo]))
+          let migrated = 0
+          for (const todo of migratedTodos) {
+            if (!byId.has(todo.id)) {
+              byId.set(todo.id, todo)
+              migrated += 1
+            }
+          }
+          const todos = [...byId.values()]
+          const subscriptions = parseSubscriptions(calendarsRaw)
           set({
-            calendarItems: parseCalendarItems(calendarRaw),
-            todos: parseTodoItems(todoRaw),
+            calendarItems: events,
+            todos,
+            subscriptions,
             plannerReady: true,
             plannerError: null
           })
+          // Tasks used to live in calendar.json; persist the split once.
+          if (migrated > 0) {
+            await Promise.all([
+              window.api.vault.writeJson(CALENDAR_FILE, events),
+              window.api.vault.writeJson(TODO_FILE, todos)
+            ])
+            console.info(`[planner] migrated ${migrated} calendar tasks into todo.json`)
+          }
+          void get().refreshAllSubscriptions()
         } catch (error) {
           console.error('[planner] failed to load planner data', error)
           set({ plannerError: 'Could not load calendar/todo data.', plannerReady: true })
         }
       },
       addCalendarItem: (draft) => {
-        const now = Date.now()
-        const item: CalendarItem = { ...draft, id: uid(), createdAt: now, updatedAt: now }
+        const item = calendarItemFromDraft(uid(), draft, Date.now())
         const items = [...get().calendarItems, item]
         set({ calendarItems: items, plannerError: null })
-        void window.api.vault.writeJson(CALENDAR_FILE, items).catch((error) => {
-          console.error('[planner] failed to save calendar.json', error)
-          set({ plannerError: 'Could not save calendar.json.' })
-        })
+        saveCalendarFile(items, set)
       },
       updateCalendarItem: (id, patch) => {
+        const current = get().calendarItems.find((item) => item.id === id)
+        if (!current) return
+        const draft = { ...draftFromItem(current), ...patch }
         const items = get().calendarItems.map((item) =>
-          item.id === id ? { ...item, ...patch, updatedAt: Date.now() } : item
+          item.id === id
+            ? calendarItemFromDraft(id, draft, Date.now(), {
+                createdAt: item.createdAt,
+                status: item.status,
+                exdates: item.exdates,
+                calendarId: item.calendarId
+              })
+            : item
         )
         set({ calendarItems: items, plannerError: null })
-        void window.api.vault.writeJson(CALENDAR_FILE, items).catch((error) => {
-          console.error('[planner] failed to save calendar.json', error)
-          set({ plannerError: 'Could not save calendar.json.' })
-        })
+        saveCalendarFile(items, set)
       },
       deleteCalendarItem: (id) => {
         const items = get().calendarItems.filter((item) => item.id !== id)
         set({ calendarItems: items, plannerError: null })
-        void window.api.vault.writeJson(CALENDAR_FILE, items).catch((error) => {
-          console.error('[planner] failed to save calendar.json', error)
-          set({ plannerError: 'Could not save calendar.json.' })
-        })
+        saveCalendarFile(items, set)
       },
       addTodo: (draft) => {
-        const now = Date.now()
-        const item: TodoItem = { ...draft, id: uid(), done: false, createdAt: now, updatedAt: now }
+        const item = todoItemFromDraft(uid(), draft, false, Date.now())
         const todos = [item, ...get().todos]
         set({ todos, plannerError: null })
-        void window.api.vault.writeJson(TODO_FILE, todos).catch((error) => {
-          console.error('[planner] failed to save todo.json', error)
-          set({ plannerError: 'Could not save todo.json.' })
-        })
+        saveTodoFile(todos, set)
+        return item.id
       },
       updateTodo: (id, patch) => {
+        const current = get().todos.find((item) => item.id === id)
+        if (!current) return
+        const draft: TodoDraft = {
+          kind: patch.kind ?? current.kind,
+          title: patch.title ?? current.title,
+          notes: patch.notes ?? current.notes,
+          location: patch.location ?? current.location,
+          due: patch.due !== undefined ? patch.due : current.due,
+          time: patch.time !== undefined ? patch.time : current.time
+        }
+        const done = patch.done ?? current.status === 'completed'
         const todos = get().todos.map((item) =>
-          item.id === id ? { ...item, ...patch, updatedAt: Date.now() } : item
+          item.id === id
+            ? todoItemFromDraft(id, draft, done, Date.now(), { createdAt: item.createdAt })
+            : item
         )
         set({ todos, plannerError: null })
-        void window.api.vault.writeJson(TODO_FILE, todos).catch((error) => {
-          console.error('[planner] failed to save todo.json', error)
-          set({ plannerError: 'Could not save todo.json.' })
-        })
+        saveTodoFile(todos, set)
       },
       toggleTodo: (id) => {
         const current = get().todos.find((item) => item.id === id)
-        if (current) get().updateTodo(id, { done: !current.done })
+        if (current) get().updateTodo(id, { done: current.status !== 'completed' })
       },
       deleteTodo: (id) => {
         const todos = get().todos.filter((item) => item.id !== id)
         set({ todos, plannerError: null })
-        void window.api.vault.writeJson(TODO_FILE, todos).catch((error) => {
-          console.error('[planner] failed to save todo.json', error)
-          set({ plannerError: 'Could not save todo.json.' })
-        })
+        saveTodoFile(todos, set)
+      },
+      setLocalCalendarColor: (localCalendarColor) => set({ localCalendarColor }),
+      addSubscription: async ({ name, url, color }) => {
+        const id = uid()
+        const subscription: CalendarSubscription = {
+          id,
+          name: name.trim() || 'Subscribed calendar',
+          url: url.trim(),
+          color,
+          enabled: true,
+          lastFetched: null,
+          error: null,
+          events: []
+        }
+        const subscriptions = [...get().subscriptions, subscription]
+        set({ subscriptions })
+        saveCalendarsFile(subscriptions, set)
+        await get().refreshSubscription(id)
+        return id
+      },
+      updateSubscription: (id, patch) => {
+        const subscriptions = get().subscriptions.map((sub) =>
+          sub.id === id ? { ...sub, ...patch } : sub
+        )
+        set({ subscriptions })
+        saveCalendarsFile(subscriptions, set)
+      },
+      removeSubscription: (id) => {
+        const subscriptions = get().subscriptions.filter((sub) => sub.id !== id)
+        set({ subscriptions })
+        saveCalendarsFile(subscriptions, set)
+      },
+      refreshSubscription: async (id) => {
+        const sub = get().subscriptions.find((s) => s.id === id)
+        if (!sub) return
+        try {
+          const text = await window.api.fetchIcs(sub.url)
+          const now = Date.now()
+          const events: CalendarItem[] = []
+          for (const event of parseIcs(text)) {
+            events.push({
+              id: `${id}:${event.uid}`,
+              summary: event.summary || 'Untitled',
+              description: event.description,
+              location: event.location,
+              start: event.start,
+              end: event.end,
+              status: 'confirmed',
+              recurrence: event.recurrence,
+              exdates: event.exdates,
+              calendarId: id,
+              createdAt: now,
+              updatedAt: now
+            })
+          }
+          const subscriptions = get().subscriptions.map((s) =>
+            s.id === id ? { ...s, events, lastFetched: now, error: null } : s
+          )
+          set({ subscriptions })
+          saveCalendarsFile(subscriptions, set)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Could not load the feed.'
+          console.error(`[planner] subscription ${id} failed`, error)
+          const subscriptions = get().subscriptions.map((s) =>
+            s.id === id ? { ...s, error: message } : s
+          )
+          set({ subscriptions })
+          saveCalendarsFile(subscriptions, set)
+        }
+      },
+      refreshAllSubscriptions: async () => {
+        const ids = get()
+          .subscriptions.filter((sub) => sub.enabled)
+          .map((sub) => sub.id)
+        for (const id of ids) {
+          await get().refreshSubscription(id)
+        }
       }
     }),
     {
@@ -558,7 +764,12 @@ export const useAppStore = create<AppState>()(
         ttsEnabled: state.ttsEnabled,
         sidebarWidth: state.sidebarWidth,
         splitTabId: state.splitTabId,
-        splitRatio: state.splitRatio
+        splitRatio: state.splitRatio,
+        localCalendarColor: state.localCalendarColor,
+        alarmTime: state.alarmTime,
+        alarmEnabled: state.alarmEnabled,
+        alarmSoundId: state.alarmSoundId,
+        customAlarm: state.customAlarm
       }),
       // Drop note tabs whose note no longer exists (e.g. after an older
       // session) and always leave at least one tab open.
@@ -578,6 +789,11 @@ export const useAppStore = create<AppState>()(
             | 'sidebarWidth'
             | 'splitTabId'
             | 'splitRatio'
+            | 'localCalendarColor'
+            | 'alarmTime'
+            | 'alarmEnabled'
+            | 'alarmSoundId'
+            | 'customAlarm'
           >
         >
         const notes = saved.notes ?? []
@@ -592,7 +808,7 @@ export const useAppStore = create<AppState>()(
         const messages = (saved.messages ?? []).slice(-MAX_CHAT_MESSAGES)
         const noteOrder = (saved.noteOrder ?? []).filter((id) => noteIds.has(id))
         // Never pop the bubble for history that predates this launch: seed
-        // "seen" at the newest restored agent message.
+        // "seen" at the newest restored SeeMO message.
         let lastSeenAgentId = saved.lastSeenAgentId ?? null
         if (!lastSeenAgentId) {
           for (const message of messages) {
@@ -615,6 +831,13 @@ export const useAppStore = create<AppState>()(
               ? saved.splitTabId
               : null,
           splitRatio: clampSplitRatio(saved.splitRatio),
+          localCalendarColor:
+            typeof saved.localCalendarColor === 'string' && saved.localCalendarColor
+              ? saved.localCalendarColor
+              : CALENDAR_COLORS[0],
+          alarmTime: typeof saved.alarmTime === 'string' ? saved.alarmTime : null,
+          alarmEnabled: saved.alarmEnabled ?? false,
+          ...restoreAlarmSound(saved),
           lastSeenAgentId
         }
       }

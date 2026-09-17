@@ -2094,20 +2094,29 @@ body {
   color: #101418;
 }
 
-.cal-chip--event {
-  background: rgba(106, 176, 255, 0.85);
-}
-
-.cal-chip--activity {
-  background: rgba(178, 132, 255, 0.85);
-}
-
-.cal-chip--todo {
-  background: rgba(255, 190, 90, 0.85);
-}
-
 .cal-chip:hover {
   filter: brightness(1.12);
+}
+
+.cal-chip.is-readonly {
+  cursor: default;
+  opacity: 0.92;
+}
+
+.cal-chip__repeat {
+  flex: none;
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+/* Kind icon sits at the right end of every chip. */
+.cal-chip__icon {
+  display: flex;
+  align-items: center;
+  flex: none;
+  margin-left: auto;
+  padding-left: 3px;
+  opacity: 0.75;
 }
 
 .cal-chip.is-done {
@@ -2126,6 +2135,8 @@ body {
 }
 
 .cal-chip__title {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2312,17 +2323,7 @@ button.cal-week__day:hover {
   gap: 1px;
 }
 
-.cal-block--event {
-  background: rgba(106, 176, 255, 0.88);
-}
-
-.cal-block--activity {
-  background: rgba(178, 132, 255, 0.88);
-}
-
-.cal-block--todo {
-  background: rgba(255, 190, 90, 0.88);
-}
+/* Colors are supplied per calendar/item by the component. */
 
 .cal-block:hover {
   filter: brightness(1.1);
@@ -2334,6 +2335,10 @@ button.cal-week__day:hover {
 
 .cal-block.is-done .cal-block__title {
   text-decoration: line-through;
+}
+
+.cal-block {
+  position: absolute;
 }
 
 .cal-block__title {
@@ -2352,6 +2357,14 @@ button.cal-week__day:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.cal-block__icon {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  display: flex;
+  opacity: 0.7;
 }
 
 /* -------------------------------------------------------------------- todo */
@@ -2564,6 +2577,10 @@ button.cal-week__day:hover {
 
 .dlg__seg-btn {
   flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border: none;
   border-radius: 7px;
   background: transparent;
@@ -2653,6 +2670,381 @@ button.cal-week__day:hover {
   flex: 1;
 }
 
+/* ------------------------------------------------------------------- misc */
+
+.misc {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.misc__inner {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 40px 48px 80px;
+}
+
+.misc__header {
+  margin-bottom: 20px;
+}
+
+.misc__title {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ev-c-text-1);
+}
+
+.misc__subtitle {
+  margin-top: 6px;
+  font-size: 14px;
+  color: var(--ev-c-text-2);
+}
+
+.misc__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 14px;
+}
+
+.miniapp {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.miniapp.is-ringing {
+  border-color: rgba(255, 107, 107, 0.7);
+  animation: miniapp-ring 1s ease-in-out infinite;
+}
+
+@keyframes miniapp-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 107, 107, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.25);
+  }
+}
+
+.miniapp__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ev-c-text-1);
+}
+
+.miniapp__head h3 {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.miniapp__clock {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ev-c-text-1);
+  line-height: 1.1;
+}
+
+.miniapp__row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.miniapp__row .dlg__input {
+  min-width: 0;
+  flex: 1;
+}
+
+.miniapp__hint {
+  font-size: 12.5px;
+  color: var(--ev-c-text-3);
+}
+
+.miniapp__error {
+  color: var(--danger);
+}
+
+select.dlg__input {
+  cursor: pointer;
+}
+
+.miniapp__bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.miniapp__bar span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 200ms linear;
+}
+
+.miniapp--soon {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-style: dashed;
+  opacity: 0.7;
+}
+
+.miniapp__soon {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--ev-c-text-2);
+}
+
+/* --------------------------------------------- calendar legend + subscriptions */
+
+.cal__legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--ev-c-text-3);
+}
+
+.cal__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cal__legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.cal__cals {
+  position: relative;
+}
+
+.cal-cals__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.cal-cals {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 41;
+  width: 340px;
+  max-height: 70vh;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #262626;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  padding: 12px;
+}
+
+.cal-cals__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ev-c-text-1);
+}
+
+.cal-cals__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+}
+
+.cal-cals__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.cal-cals__toggle:hover {
+  background: var(--hover-strong);
+}
+
+.cal-cals__toggle.is-off {
+  opacity: 0.3;
+}
+
+.cal-cals__dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+}
+
+.cal-cals__name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ev-c-text-1);
+}
+
+.cal-cals__badge {
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ev-c-text-3);
+}
+
+.cal-cals__color {
+  flex: none;
+  width: 62px;
+  padding: 3px 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ev-c-text-2);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.cal-cals__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ev-c-text-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.cal-cals__icon:hover {
+  background: var(--hover-strong);
+  color: var(--ev-c-text-1);
+}
+
+.cal-cals__icon--danger:hover {
+  background: rgba(255, 80, 80, 0.14);
+  color: var(--danger);
+}
+
+.cal-cals__error {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  color: var(--danger);
+}
+
+.cal-cals__add {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cal-cals__add-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cal-cals__swatches {
+  display: flex;
+  gap: 4px;
+}
+
+.cal-cals__swatch {
+  width: 16px;
+  height: 16px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.cal-cals__swatch.is-active {
+  border-color: var(--ev-c-text-1);
+}
+
+/* ------------------------------------------------ recurrence builder (dialog) */
+
+.dlg__recur {
+  margin: 4px 0 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.dlg__weekdays {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.dlg__weekday {
+  flex: 1;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ev-c-text-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dlg__weekday:hover {
+  background: var(--hover-strong);
+  color: var(--ev-c-text-1);
+}
+
+.dlg__weekday.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #101418;
+}
+
+.dlg__hint {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ev-c-text-3);
+}
+
 /* ------------------------------------------------- reduced motion */
 
 @media (prefers-reduced-motion: reduce) {
@@ -2662,4 +3054,21 @@ button.cal-week__day:hover {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Kind marker on task/todo rows (they share one list). */
+.todo-kind {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 6px;
+  vertical-align: -2px;
+  color: var(--ev-c-text-3);
+}
+
+.todo-kind--task {
+  color: #b284ff;
+}
+
+.todo-kind--todo {
+  color: #ffbe5a;
 }

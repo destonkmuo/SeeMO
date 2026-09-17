@@ -9,6 +9,7 @@ import Agent from './pages/Agent'
 import Calendar from './pages/Calendar'
 import Graph from './pages/Graph'
 import Home from './pages/Home'
+import Misc from './pages/Misc'
 import Note from './pages/Note'
 import Section from './pages/Section'
 import Settings from './pages/Settings'
@@ -25,6 +26,7 @@ function Content({ active }: { active: NavKey }): React.JSX.Element {
   if (active === 'settings') return <Settings />
   if (active === 'calendar') return <Calendar />
   if (active === 'todo') return <Todo />
+  if (active === 'misc') return <Misc />
   return <Section section={active} />
 }
 
