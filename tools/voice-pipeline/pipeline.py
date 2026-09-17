@@ -57,9 +57,11 @@ WAKE_MODEL = os.environ.get("WHISPER_WAKE_MODEL", "models/ggml-tiny.bin")
 # A larger model for the final command transcription.
 TRANSCRIBE_MODEL = os.environ.get("WHISPER_MODEL", "models/ggml-base.bin")
 
-# Wake-word listener tuning.
-WAKE_WINDOW_SECONDS = 4.0      # audio window fed to whisper each check
-WAKE_INTERVAL = 1.0            # seconds between wake-word checks
+# Wake-word listener tuning. Checked twice as often over a shorter window so
+# "hey simo" trips detection fast: worst case ~0.5s scheduling delay plus one
+# tiny-model pass over 3s of audio (well under a second on CPU).
+WAKE_WINDOW_SECONDS = 3.0      # audio window fed to whisper each check
+WAKE_INTERVAL = 0.5            # seconds between wake-word checks
 # Whisper sometimes hears "jarvis" slightly differently; keep a small alias set.
 WAKE_ALIASES = ("simo", "sima", "simmo", "simoe", "seema", "sema")
 

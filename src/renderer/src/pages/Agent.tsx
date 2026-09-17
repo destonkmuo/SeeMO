@@ -8,7 +8,8 @@ const STATES: { key: CoreState; label: string; hint: string }[] = [
   { key: 'sleep', label: 'Sleep', hint: 'Dormant — not working, not spoken to' },
   { key: 'idle', label: 'Idle', hint: 'Listening — being spoken to' },
   { key: 'working', label: 'Working', hint: 'On an objective' },
-  { key: 'speaking', label: 'Speaking', hint: 'Talking back' }
+  { key: 'speaking', label: 'Speaking', hint: 'Talking back' },
+  { key: 'summoned', label: 'Summoned', hint: 'Just heard the wake word' }
 ]
 
 function timeOfDay(timestamp: number): string {
@@ -17,11 +18,9 @@ function timeOfDay(timestamp: number): string {
 
 function Agent(): React.JSX.Element {
   const coreState = useAppStore((state) => state.coreState)
-  const setCoreState = useAppStore((state) => state.setCoreState)
   const messages = useAppStore((state) => state.messages)
   const addChatMessage = useAppStore((state) => state.addChatMessage)
   const clearChat = useAppStore((state) => state.clearChat)
-  const activeHint = STATES.find((s) => s.key === coreState)?.hint ?? ''
 
   const [draft, setDraft] = useState('')
   const [pendingReply, setPendingReply] = useState(false)
@@ -60,24 +59,16 @@ function Agent(): React.JSX.Element {
           <JarvisCore />
         </div>
         <div className="agent__controls">
-          {STATES.map((s) => (
-            <button
-              key={s.key}
-              type="button"
-              className="agent__toggle"
-              disabled={s.key === coreState}
-              title={s.hint}
-              onClick={() => setCoreState(s.key)}
-            >
-              {s.label}
-            </button>
-          ))}
-          {coreState === 'working' ? (
-            <span className="agent__thinking">core thinking</span>
-          ) : (
-            <span className="agent__status">
-              Status: <strong>{coreState}</strong> — {activeHint}
-            </span>
+          {STATES.map((s) =>
+            s.key === coreState ? (
+              <span key={s.key} className="state-pill is-active" title={s.hint}>
+                <span className="agent__thinking">{s.label}</span>
+              </span>
+            ) : (
+              <span key={s.key} className="state-pill" title={s.hint}>
+                {s.label}
+              </span>
+            )
           )}
         </div>
       </div>

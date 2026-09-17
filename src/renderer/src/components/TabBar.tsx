@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { NAV_BY_KEY, NAV_LABELS } from '../nav'
 import { useAppStore } from '../store/appStore'
-import { FileTextIcon, PlusIcon, SplitIcon, XIcon } from './icons'
+import { FileTextIcon, ClearAllIcon, PlusIcon, SplitIcon, XIcon } from './icons'
 
 interface DropHint {
   id: string
@@ -17,6 +17,7 @@ function TabBar(): React.JSX.Element {
   const closeTab = useAppStore((state) => state.closeTab)
   const moveTab = useAppStore((state) => state.moveTab)
   const setSplitTab = useAppStore((state) => state.setSplitTab)
+  const closeAllTabs = useAppStore((state) => state.closeAllTabs)
   const createNote = useAppStore((state) => state.createNote)
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -136,6 +137,16 @@ function TabBar(): React.JSX.Element {
         onClick={() => createNote()}
       >
         <PlusIcon size={15} />
+      </button>
+      <button
+        type="button"
+        className="tabbar__new"
+        title="Clear all tabs"
+        aria-label="Clear all tabs"
+        disabled={tabs.length === 0}
+        onClick={() => closeAllTabs()}
+      >
+        <ClearAllIcon size={15} />
       </button>
     </div>
   )

@@ -70,6 +70,31 @@ body {
   border-left: 1px solid var(--line);
 }
 
+.app__divider {
+  position: relative;
+  flex: none;
+  width: 9px;
+  margin: 0 -4px;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.app__divider::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background-color 120ms ease;
+}
+
+.app__divider:hover::after,
+.app__divider.is-active::after {
+  background: var(--accent);
+}
+
 .pane__header {
   display: flex;
   align-items: center;
@@ -344,6 +369,17 @@ body {
   background: var(--hover-strong);
   border-color: rgba(255, 255, 255, 0.3);
   color: var(--ev-c-text-1);
+}
+
+.tabbar__new:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tabbar__new:disabled:hover {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.16);
+  color: var(--ev-c-text-2);
 }
 
 .empty {
@@ -1400,6 +1436,26 @@ body {
   background: rgba(255, 255, 255, 0.12);
 }
 
+/* Non-interactive state readout pill (states are voice-driven, not clickable). */
+.state-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  padding: 0 18px;
+  line-height: 34px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ev-c-text-3);
+  cursor: default;
+  user-select: none;
+}
+
+.state-pill.is-active {
+  color: var(--ev-c-text-1);
+  background-color: var(--hover-strong);
+}
+
 .vault-card {
   display: flex;
   align-items: flex-start;
@@ -1420,6 +1476,15 @@ body {
   font-weight: 600;
   color: var(--ev-c-text-1);
   word-break: break-all;
+}
+
+.vault-card__path a {
+  color: var(--ev-c-text-1);
+  text-decoration: none;
+}
+
+.vault-card__path a:hover {
+  text-decoration: underline;
 }
 
 .vault-card__meta {
@@ -1498,35 +1563,6 @@ body {
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
-}
-
-.agent__toggle {
-  cursor: pointer;
-  border: 1px solid var(--ev-button-alt-border);
-  border-radius: 20px;
-  padding: 0 18px;
-  line-height: 34px;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ev-button-alt-text);
-  background-color: var(--ev-button-alt-bg);
-}
-
-.agent__toggle:hover:not(:disabled) {
-  border-color: var(--ev-button-alt-hover-border);
-  color: var(--ev-button-alt-hover-text);
-  background-color: var(--ev-button-alt-hover-bg);
-}
-
-.agent__toggle:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
-.agent__status {
-  font-size: 13px;
-  color: var(--ev-c-text-2);
 }
 
 /* --------------------------------------------------------------------- chat */
@@ -1824,8 +1860,20 @@ body {
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.06em;
-  background: linear-gradient(100deg, var(--ev-c-text-3) 20%, #ffffff 42%, var(--ev-c-text-3) 64%);
-  background-size: 220% 100%;
+  /* Two identical highlight bands, one per half: sweeping exactly one half
+     returns to the identical frame, so the loop is seamless. */
+  background: linear-gradient(
+    100deg,
+    var(--ev-c-text-3) 0%,
+    var(--ev-c-text-3) 18%,
+    #ffffff 25%,
+    var(--ev-c-text-3) 32%,
+    var(--ev-c-text-3) 68%,
+    #ffffff 75%,
+    var(--ev-c-text-3) 82%,
+    var(--ev-c-text-3) 100%
+  );
+  background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -1834,10 +1882,10 @@ body {
 
 @keyframes thinking-scroll {
   from {
-    background-position: 115% 0;
+    background-position: 100% 0;
   }
   to {
-    background-position: -115% 0;
+    background-position: 0% 0;
   }
 }
 

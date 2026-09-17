@@ -192,3 +192,12 @@ export function SplitIcon(props: IconProps): React.JSX.Element {
     </IconBase>
   )
 }
+
+export function ClearAllIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <path d="M4 5l6 6M10 5l-6 6" />
+      <path d="M14 13l6 6M20 13l-6 6" />
+    </IconBase>
+  )
+}

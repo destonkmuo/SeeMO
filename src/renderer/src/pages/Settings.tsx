@@ -6,7 +6,8 @@ const CORE_OPTIONS: { key: CoreState; label: string; hint: string }[] = [
   { key: 'sleep', label: 'Sleep', hint: 'Dormant' },
   { key: 'idle', label: 'Idle', hint: 'Listening' },
   { key: 'working', label: 'Working', hint: 'On an objective' },
-  { key: 'speaking', label: 'Speaking', hint: 'Talking back' }
+  { key: 'speaking', label: 'Speaking', hint: 'Talking back' },
+  { key: 'summoned', label: 'Summoned', hint: 'Just heard the wake word' }
 ]
 
 function GithubBackup(): React.JSX.Element {
@@ -200,7 +201,6 @@ function GithubBackup(): React.JSX.Element {
 function Settings(): React.JSX.Element {
   const notes = useAppStore((state) => state.notes)
   const coreState = useAppStore((state) => state.coreState)
-  const setCoreState = useAppStore((state) => state.setCoreState)
   const backgroundListening = useAppStore((state) => state.backgroundListening)
   const setBackgroundListening = useAppStore((state) => state.setBackgroundListening)
   const ttsEnabled = useAppStore((state) => state.ttsEnabled)
@@ -256,21 +256,17 @@ function Settings(): React.JSX.Element {
           <h2 className="settings__section-title">Agent core</h2>
           <div className="settings__row">
             {CORE_OPTIONS.map((option) => (
-              <button
+              <span
                 key={option.key}
-                type="button"
-                className="btn btn--ghost"
-                disabled={option.key === coreState}
+                className={`state-pill${option.key === coreState ? ' is-active' : ''}`}
                 title={option.hint}
-                onClick={() => setCoreState(option.key)}
               >
                 {option.label}
-              </button>
+              </span>
             ))}
           </div>
           <p className="settings__note">
-            Current state: <strong>{coreState}</strong>. Voice activity drives this automatically;
-            these buttons preview each state.
+            Current state: <strong>{coreState}</strong>. Driven automatically by voice activity.
           </p>
         </section>
 

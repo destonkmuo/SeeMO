@@ -44,6 +44,16 @@ export function clampSidebarWidth(width: unknown): number {
   return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)))
 }
 
+/** Split-view ratio bounds (fraction of content width given to the left pane). */
+export const SPLIT_RATIO_MIN = 0.15
+export const SPLIT_RATIO_MAX = 0.85
+export const SPLIT_RATIO_DEFAULT = 0.5
+
+export function clampSplitRatio(ratio: unknown): number {
+  if (typeof ratio !== 'number' || Number.isNaN(ratio)) return SPLIT_RATIO_DEFAULT
+  return Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, ratio))
+}
+
 interface AppState {
   coreState: CoreState
   notes: Note[]
@@ -63,18 +73,22 @@ interface AppState {
   sidebarWidth: number
   /** Tab pinned in the right split pane; null = no split. */
   splitTabId: string | null
+  /** Left-pane share of split-view width, 0..1. */
+  splitRatio: number
   setCoreState: (state: CoreState) => void
   setAutoSync: (enabled: boolean) => void
   setBackgroundListening: (enabled: boolean) => void
   setTtsEnabled: (enabled: boolean) => void
   setSidebarWidth: (width: number) => void
   setSplitTab: (id: string | null) => void
+  setSplitRatio: (ratio: number) => void
   markAgentSeen: () => void
   setQuery: (query: string) => void
   setActiveTab: (id: string) => void
   openNav: (kind: NavKey) => void
   openNote: (noteId: string) => void
   closeTab: (id: string) => void
+  closeAllTabs: () => void
   moveTab: (dragId: string, targetId: string | null, before: boolean) => void
   moveNote: (dragId: string, targetId: string | null, before: boolean) => void
   createNote: (title?: string) => string
@@ -131,12 +145,14 @@ export const useAppStore = create<AppState>()(
       ttsEnabled: true,
       sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
       splitTabId: null,
+      splitRatio: SPLIT_RATIO_DEFAULT,
       setCoreState: (coreState) => set({ coreState }),
       setAutoSync: (autoSync) => set({ autoSync }),
       setBackgroundListening: (backgroundListening) => set({ backgroundListening }),
       setTtsEnabled: (ttsEnabled) => set({ ttsEnabled }),
       setSidebarWidth: (sidebarWidth) => set({ sidebarWidth: clampSidebarWidth(sidebarWidth) }),
       setSplitTab: (splitTabId) => set({ splitTabId }),
+      setSplitRatio: (splitRatio) => set({ splitRatio: clampSplitRatio(splitRatio) }),
       markAgentSeen: () =>
         set((state) => {
           let latest: string | null = null
@@ -174,6 +190,7 @@ export const useAppStore = create<AppState>()(
           const splitTabId = state.splitTabId === id ? null : state.splitTabId
           return { tabs, activeTabId, splitTabId }
         }),
+      closeAllTabs: () => set({ tabs: [], activeTabId: null, splitTabId: null }),
       moveTab: (dragId, targetId, before) =>
         set((state) => {
           if (dragId === targetId) return {}
@@ -435,7 +452,8 @@ export const useAppStore = create<AppState>()(
         lastSeenAgentId: state.lastSeenAgentId,
         ttsEnabled: state.ttsEnabled,
         sidebarWidth: state.sidebarWidth,
-        splitTabId: state.splitTabId
+        splitTabId: state.splitTabId,
+        splitRatio: state.splitRatio
       }),
       // Drop note tabs whose note no longer exists (e.g. after an older
       // session) and always leave at least one tab open.
@@ -454,6 +472,7 @@ export const useAppStore = create<AppState>()(
             | 'ttsEnabled'
             | 'sidebarWidth'
             | 'splitTabId'
+            | 'splitRatio'
           >
         >
         const notes = saved.notes ?? []
@@ -490,6 +509,7 @@ export const useAppStore = create<AppState>()(
             saved.splitTabId && tabs.some((t) => t.id === saved.splitTabId)
               ? saved.splitTabId
               : null,
+          splitRatio: clampSplitRatio(saved.splitRatio),
           lastSeenAgentId
         }
       }
