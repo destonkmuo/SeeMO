@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { NAV_BY_KEY, NAV_LABELS } from '../nav'
 import { useAppStore } from '../store/appStore'
-import { FileTextIcon, PlusIcon, XIcon } from './icons'
+import { FileTextIcon, PlusIcon, SplitIcon, XIcon } from './icons'
 
 interface DropHint {
   id: string
@@ -16,6 +16,7 @@ function TabBar(): React.JSX.Element {
   const setActiveTab = useAppStore((state) => state.setActiveTab)
   const closeTab = useAppStore((state) => state.closeTab)
   const moveTab = useAppStore((state) => state.moveTab)
+  const setSplitTab = useAppStore((state) => state.setSplitTab)
   const createNote = useAppStore((state) => state.createNote)
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -102,6 +103,17 @@ function TabBar(): React.JSX.Element {
                   />
                 )}
                 <span className="tab__label">{label}</span>
+              </button>
+              <button
+                type="button"
+                className="tab__split"
+                aria-label={`Split view with ${label}`}
+                title={`Split view with ${label}`}
+                onClick={() => {
+                  if (tab.id !== activeTabId) setSplitTab(tab.id)
+                }}
+              >
+                <SplitIcon size={13} />
               </button>
               <button
                 type="button"

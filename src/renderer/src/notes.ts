@@ -104,3 +104,102 @@ export function orderedNotes<T extends { id: string; updatedAt: number }>(
     .sort((a, b) => b.updatedAt - a.updatedAt)
   return [...missing, ...known]
 }
+
+export interface NoteGraph<T> {
+  /** Resolved outgoing links per note id (deduped, self-links dropped). */
+  children: Map<string, T[]>
+  /**
+   * Notes with no parent: no incoming link from outside their own cycle
+   * group, in input order. A pure cycle (A↔B with no outside links) keeps
+   * all its members at top level so nothing can vanish from the sidebar.
+   */
+  roots: T[]
+}
+
+/**
+ * Build the sidebar tree: children per note plus cycle-safe roots.
+ * Components are found with iterative Tarjan SCC, so even pathological
+ * link graphs (mutual links, long cycles) always leave something visible.
+ */
+export function buildNoteGraph<T extends { id: string; title: string; content: string }>(
+  notes: T[]
+): NoteGraph<T> {
+  const byId = new Map(notes.map((note) => [note.id, note]))
+  const children = new Map<string, T[]>()
+  const outgoing: number[][] = notes.map((note) => {
+    const seen = new Set<string>()
+    const kids: T[] = []
+    for (const link of parseWikiLinks(note.content)) {
+      const id = resolveWikiTarget(link.target, notes)
+      if (!id || id === note.id || seen.has(id)) continue
+      seen.add(id)
+      const child = byId.get(id)
+      if (child) kids.push(child)
+    }
+    children.set(note.id, kids)
+    return kids.map((kid) => notes.indexOf(kid))
+  })
+
+  // Iterative Tarjan SCC over integer indices (no recursion depth risk).
+  const count = notes.length
+  const indexOf: number[] = new Array<number>(count).fill(-1)
+  const lowlink: number[] = new Array<number>(count).fill(0)
+  const onStack: boolean[] = new Array<boolean>(count).fill(false)
+  const stack: number[] = []
+  const compOf: number[] = new Array<number>(count).fill(-1)
+  let index = 0
+  let compCount = 0
+
+  for (let root = 0; root < count; root++) {
+    if (indexOf[root] !== -1) continue
+    const work: { node: number; next: number }[] = [{ node: root, next: 0 }]
+    while (work.length > 0) {
+      const frame = work[work.length - 1]
+      const node = frame.node
+      if (indexOf[node] === -1) {
+        indexOf[node] = index
+        lowlink[node] = index
+        index++
+        stack.push(node)
+        onStack[node] = true
+      }
+      const succs = outgoing[node] ?? []
+      if (frame.next < succs.length) {
+        const next = succs[frame.next]
+        frame.next++
+        if (indexOf[next] === -1) {
+          work.push({ node: next, next: 0 })
+        } else if (onStack[next]) {
+          lowlink[node] = Math.min(lowlink[node], indexOf[next])
+        }
+      } else {
+        if (lowlink[node] === indexOf[node]) {
+          let member = -1
+          do {
+            member = stack.pop() ?? -1
+            if (member >= 0) {
+              onStack[member] = false
+              compOf[member] = compCount
+            }
+          } while (member !== node && member >= 0)
+          compCount++
+        }
+        work.pop()
+        if (work.length > 0) {
+          const parent = work[work.length - 1].node
+          lowlink[parent] = Math.min(lowlink[parent], lowlink[node])
+        }
+      }
+    }
+  }
+
+  const compIncoming = new Set<number>()
+  outgoing.forEach((succs, from) => {
+    for (const to of succs) {
+      if (compOf[from] !== compOf[to]) compIncoming.add(compOf[to])
+    }
+  })
+
+  const roots = notes.filter((_, i) => !compIncoming.has(compOf[i]))
+  return { children, roots }
+}

@@ -183,3 +183,12 @@ export function GraphIcon(props: IconProps): React.JSX.Element {
     </IconBase>
   )
 }
+
+export function SplitIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M12 4v16" />
+    </IconBase>
+  )
+}

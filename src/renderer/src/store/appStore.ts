@@ -6,7 +6,7 @@ export type NavKey =
   'home' | 'graph' | 'todo' | 'calendar' | 'agent' | 'activity' | 'misc' | 'settings'
 
 /** Visual/behavioral state of the core orb. */
-export type CoreState = 'sleep' | 'idle' | 'working' | 'speaking'
+export type CoreState = 'sleep' | 'idle' | 'working' | 'speaking' | 'summoned'
 
 export interface Note {
   id: string
@@ -34,6 +34,16 @@ export interface ChatMessage {
 /** Cap persisted history so the store stays small. */
 const MAX_CHAT_MESSAGES = 100
 
+/** Sidebar resize bounds (px). Shared by the store default and the drag handle. */
+export const SIDEBAR_MIN_WIDTH = 200
+export const SIDEBAR_MAX_WIDTH = 480
+export const SIDEBAR_DEFAULT_WIDTH = 260
+
+export function clampSidebarWidth(width: unknown): number {
+  if (typeof width !== 'number' || Number.isNaN(width)) return SIDEBAR_DEFAULT_WIDTH
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)))
+}
+
 interface AppState {
   coreState: CoreState
   notes: Note[]
@@ -50,10 +60,15 @@ interface AppState {
   backgroundListening: boolean
   lastSeenAgentId: string | null
   ttsEnabled: boolean
+  sidebarWidth: number
+  /** Tab pinned in the right split pane; null = no split. */
+  splitTabId: string | null
   setCoreState: (state: CoreState) => void
   setAutoSync: (enabled: boolean) => void
   setBackgroundListening: (enabled: boolean) => void
   setTtsEnabled: (enabled: boolean) => void
+  setSidebarWidth: (width: number) => void
+  setSplitTab: (id: string | null) => void
   markAgentSeen: () => void
   setQuery: (query: string) => void
   setActiveTab: (id: string) => void
@@ -114,10 +129,14 @@ export const useAppStore = create<AppState>()(
       backgroundListening: false,
       lastSeenAgentId: null,
       ttsEnabled: true,
+      sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
+      splitTabId: null,
       setCoreState: (coreState) => set({ coreState }),
       setAutoSync: (autoSync) => set({ autoSync }),
       setBackgroundListening: (backgroundListening) => set({ backgroundListening }),
       setTtsEnabled: (ttsEnabled) => set({ ttsEnabled }),
+      setSidebarWidth: (sidebarWidth) => set({ sidebarWidth: clampSidebarWidth(sidebarWidth) }),
+      setSplitTab: (splitTabId) => set({ splitTabId }),
       markAgentSeen: () =>
         set((state) => {
           let latest: string | null = null
@@ -151,7 +170,9 @@ export const useAppStore = create<AppState>()(
             state.activeTabId === id
               ? (tabs[index]?.id ?? tabs[index - 1]?.id ?? null)
               : state.activeTabId
-          return { tabs, activeTabId }
+          // Closing the split tab itself dissolves the split.
+          const splitTabId = state.splitTabId === id ? null : state.splitTabId
+          return { tabs, activeTabId, splitTabId }
         }),
       moveTab: (dragId, targetId, before) =>
         set((state) => {
@@ -220,7 +241,11 @@ export const useAppStore = create<AppState>()(
           const activeTabId = tabs.some((t) => t.id === state.activeTabId)
             ? state.activeTabId
             : (tabs[0]?.id ?? null)
-          return { notes, noteOrder, tabs, activeTabId }
+          const splitTabId =
+            state.splitTabId && tabs.some((t) => t.id === state.splitTabId)
+              ? state.splitTabId
+              : null
+          return { notes, noteOrder, tabs, activeTabId, splitTabId }
         })
         if (removeFile && removed) {
           void window.api.vault.remove(removed.fileName).catch((error) => {
@@ -408,7 +433,9 @@ export const useAppStore = create<AppState>()(
         autoSync: state.autoSync,
         backgroundListening: state.backgroundListening,
         lastSeenAgentId: state.lastSeenAgentId,
-        ttsEnabled: state.ttsEnabled
+        ttsEnabled: state.ttsEnabled,
+        sidebarWidth: state.sidebarWidth,
+        splitTabId: state.splitTabId
       }),
       // Drop note tabs whose note no longer exists (e.g. after an older
       // session) and always leave at least one tab open.
@@ -425,6 +452,8 @@ export const useAppStore = create<AppState>()(
             | 'backgroundListening'
             | 'lastSeenAgentId'
             | 'ttsEnabled'
+            | 'sidebarWidth'
+            | 'splitTabId'
           >
         >
         const notes = saved.notes ?? []
@@ -456,6 +485,11 @@ export const useAppStore = create<AppState>()(
           autoSync: saved.autoSync ?? false,
           backgroundListening: saved.backgroundListening ?? false,
           ttsEnabled: saved.ttsEnabled ?? true,
+          sidebarWidth: clampSidebarWidth(saved.sidebarWidth),
+          splitTabId:
+            saved.splitTabId && tabs.some((t) => t.id === saved.splitTabId)
+              ? saved.splitTabId
+              : null,
           lastSeenAgentId
         }
       }

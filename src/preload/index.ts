@@ -25,6 +25,13 @@ const api = {
       ipcRenderer.removeListener('voice:transcript', listener)
     }
   },
+  onVoiceWake: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('voice:wake', listener)
+    return () => {
+      ipcRenderer.removeListener('voice:wake', listener)
+    }
+  },
   vault,
   speak: (text: string): Promise<boolean> => ipcRenderer.invoke('voice:speak', text),
   github: {

@@ -151,6 +151,7 @@ interface CoreParams {
   sizeScale: number
   colorMix: number
   warm: number
+  green: number
   radius: number
 }
 
@@ -164,6 +165,7 @@ const PARAM_KEYS = [
   'sizeScale',
   'colorMix',
   'warm',
+  'green',
   'radius'
 ] as const
 
@@ -179,6 +181,7 @@ const STATE_TARGETS: Record<CoreState, CoreParams> = {
     sizeScale: 0.013,
     colorMix: 0.0,
     warm: 0.0,
+    green: 0.0,
     radius: 0.82
   },
   // Listening: attentive blue, gentle outward ripple, gathered core.
@@ -192,6 +195,7 @@ const STATE_TARGETS: Record<CoreState, CoreParams> = {
     sizeScale: 0.016,
     colorMix: 0.65,
     warm: 0.0,
+    green: 0.0,
     radius: 1.0
   },
   // On an objective: fast amber churn, expanded cloud.
@@ -205,6 +209,7 @@ const STATE_TARGETS: Record<CoreState, CoreParams> = {
     sizeScale: 0.017,
     colorMix: 0.8,
     warm: 1.0,
+    green: 0.0,
     radius: 1.08
   },
   // Talking back: strong vibration, bright cyan, speech-cadence throb.
@@ -218,7 +223,24 @@ const STATE_TARGETS: Record<CoreState, CoreParams> = {
     sizeScale: 0.019,
     colorMix: 1.0,
     warm: 0.15,
+    green: 0.0,
     radius: 1.12
+  },
+  // Just summoned by the wake word: brief punchy green flash. Transient by
+  // design — the transcript handler moves on to `working`, or a fallback
+  // timer drops back to `idle` if nothing follows.
+  summoned: {
+    energy: 0.85,
+    pulse: 1.0,
+    swirl: 1.6,
+    breathAmp: 0.1,
+    turbulence: 1.4,
+    brightness: 0.09,
+    sizeScale: 0.019,
+    colorMix: 0.7,
+    warm: 0.0,
+    green: 1.0,
+    radius: 1.06
   }
 }
 
@@ -492,6 +514,7 @@ function JarvisCore(): React.JSX.Element {
         renderData[22] = cur.brightness
         renderData[23] = cur.pulse
         renderData[24] = cur.warm
+        renderData[25] = cur.green
         gpu.queue.writeBuffer(renderBuffer, 0, renderData)
 
         compositeData[0] = canvas.width

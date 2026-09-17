@@ -109,6 +109,15 @@ function onTranscript(text: string): void {
   }
 }
 
+function onWake(): void {
+  // The wake word just fired — upstream of any transcript. The renderer
+  // flashes the `summoned` state briefly until the transcript lands (or its
+  // fallback timer expires).
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('voice:wake')
+  }
+}
+
 function lineSplitter(handler: (line: string) => void): (chunk: Buffer) => void {
   let buffer = ''
   return (chunk) => {
@@ -149,7 +158,10 @@ export function startVoice(): void {
   child.stdout.on('data', lineSplitter(onTranscript))
   child.stderr.on(
     'data',
-    lineSplitter((line) => console.log(`[voice] ${line}`))
+    lineSplitter((line) => {
+      console.log(`[voice] ${line}`)
+      if (line.includes('wake word detected')) onWake()
+    })
   )
   child.on('error', (err) => console.error('[voice] pipeline error:', err))
   child.on('exit', (code) => {

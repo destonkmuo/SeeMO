@@ -146,7 +146,7 @@ struct RenderUniforms {
   brightness: f32,
   pulse: f32,
   warm: f32,
-  pad0: f32,
+  green: f32,
   pad1: f32,
   pad2: f32,
 };
@@ -198,11 +198,13 @@ fn fs_particle(in: VSOut) -> @location(0) vec4f {
   let glow = exp(-d * d * 2.0) * 0.35;
 
   // Cool blue ramp (sleep -> idle -> speaking) with an amber override
-  // while working on an objective.
+  // while working on an objective, and a green flash while summoned.
   let cool = mix(vec3f(0.30, 0.38, 0.50), vec3f(0.16, 0.58, 1.0), ren.colorMix);
-  let base = mix(cool, vec3f(1.0, 0.55, 0.18), ren.warm * 0.85);
+  var base = mix(cool, vec3f(1.0, 0.55, 0.18), ren.warm * 0.85);
+  base = mix(base, vec3f(0.20, 0.95, 0.45), ren.green);
   var hot = mix(vec3f(0.85, 0.88, 0.92), vec3f(0.80, 0.96, 1.0), ren.colorMix);
   hot = mix(hot, vec3f(1.0, 0.90, 0.75), ren.warm * 0.7);
+  hot = mix(hot, vec3f(0.75, 1.0, 0.85), ren.green);
 
   let inner = clamp(1.0 - in.radial, 0.0, 1.0);
   let col = mix(base, hot, inner * inner * 0.5);

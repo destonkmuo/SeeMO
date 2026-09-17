@@ -4,6 +4,7 @@ import type { VaultApi } from './vault'
 
 interface VoiceApi {
   onVoiceTranscript: (callback: (text: string) => void) => () => void
+  onVoiceWake: (callback: () => void) => () => void
   speak: (text: string) => Promise<boolean>
 }
 

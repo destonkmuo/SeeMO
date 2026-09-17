@@ -6,9 +6,11 @@ import { useAppStore } from '../store/appStore'
 
 // A fresh transcript means the user spoke: process it as `working`, fall
 // back to `idle` (listening) after a few quiet seconds, and drift to `sleep`
-// after prolonged silence.
+// after prolonged silence. A wake-word hit flashes `summoned` briefly until
+// the transcript lands (or its own short fallback expires).
 const WORKING_TIMEOUT_MS = 8000
 const SLEEP_TIMEOUT_MS = 90000
+const SUMMONED_TIMEOUT_MS = 2500
 
 export interface VoiceTranscript {
   id: string
@@ -49,13 +51,25 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   const [transcripts, setTranscripts] = useState<VoiceTranscript[]>([])
   const workingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sleepTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const summonedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Clear activity timers on unmount.
   useEffect(() => {
     return () => {
       if (workingTimer.current) clearTimeout(workingTimer.current)
       if (sleepTimer.current) clearTimeout(sleepTimer.current)
+      if (summonedTimer.current) clearTimeout(summonedTimer.current)
     }
+  }, [])
+
+  // Wake-word hits arrive ahead of any transcript: flash `summoned` briefly.
+  useEffect(() => {
+    return window.api.onVoiceWake(() => {
+      const { setCoreState } = useAppStore.getState()
+      if (summonedTimer.current) clearTimeout(summonedTimer.current)
+      setCoreState('summoned')
+      summonedTimer.current = setTimeout(() => setCoreState('idle'), SUMMONED_TIMEOUT_MS)
+    })
   }, [])
 
   // Receive transcriptions forwarded from the main process.
@@ -75,6 +89,9 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
       if (backgroundListening) respondTo(text)
       if (workingTimer.current) clearTimeout(workingTimer.current)
       if (sleepTimer.current) clearTimeout(sleepTimer.current)
+      // A transcript supersedes the summoned flash — don't let its fallback
+      // cut `working` short.
+      if (summonedTimer.current) clearTimeout(summonedTimer.current)
       workingTimer.current = setTimeout(() => setCoreState('idle'), WORKING_TIMEOUT_MS)
       sleepTimer.current = setTimeout(() => setCoreState('sleep'), SLEEP_TIMEOUT_MS)
     })
