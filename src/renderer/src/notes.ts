@@ -39,3 +39,26 @@ export function titleFromFileName(fileName: string): string {
   const pretty = fileName.replace(/\.md$/i, '').replace(/[-_]+/g, ' ').trim()
   return pretty || 'Untitled'
 }
+
+/**
+ * Order notes for the sidebar: the persisted manual order first, then any
+ * notes not yet positioned (new or freshly imported), most-recently-edited
+ * first — which is also exactly the legacy behavior when no manual order
+ * exists yet.
+ */
+export function orderedNotes<T extends { id: string; updatedAt: number }>(
+  notes: T[],
+  noteOrder: string[]
+): T[] {
+  const byId = new Map(notes.map((note) => [note.id, note]))
+  const known: T[] = []
+  for (const id of noteOrder) {
+    const note = byId.get(id)
+    if (note) known.push(note)
+  }
+  const knownSet = new Set(known.map((note) => note.id))
+  const missing = notes
+    .filter((note) => !knownSet.has(note.id))
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+  return [...missing, ...known]
+}

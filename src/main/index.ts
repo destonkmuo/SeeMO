@@ -1,7 +1,8 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { startVoice, stopVoice } from './voice'
+import { startVoice, stopVoice, speakResponse } from './voice'
+import { registerGithubHandlers } from './github'
 import { registerVaultHandlers } from './vault'
 import icon from '../../resources/icon.png?asset'
 
@@ -56,8 +57,16 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
+  // Renderer -> pipeline: speak an agent reply aloud via Piper TTS.
+  ipcMain.handle('voice:speak', (_event, text: unknown) =>
+    speakResponse(typeof text === 'string' ? text : '')
+  )
+
   // Markdown vault: one .md file per note, readable outside the app.
   registerVaultHandlers()
+
+  // GitHub backup for the vault (status/create/sync via gh + git).
+  registerGithubHandlers()
 
   createWindow()
 

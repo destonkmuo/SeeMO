@@ -1,4 +1,6 @@
+import { useCallback, useEffect, useState } from 'react'
 import { type CoreState, useAppStore } from '../store/appStore'
+import type { GithubStatus } from '../../../preload/github'
 
 const CORE_OPTIONS: { key: CoreState; label: string; hint: string }[] = [
   { key: 'sleep', label: 'Sleep', hint: 'Dormant' },
@@ -7,10 +9,202 @@ const CORE_OPTIONS: { key: CoreState; label: string; hint: string }[] = [
   { key: 'speaking', label: 'Speaking', hint: 'Talking back' }
 ]
 
+function GithubBackup(): React.JSX.Element {
+  const autoSync = useAppStore((state) => state.autoSync)
+  const setAutoSync = useAppStore((state) => state.setAutoSync)
+  const [status, setStatus] = useState<GithubStatus | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const [repoName, setRepoName] = useState('seemo-notes')
+  const [isPrivate, setIsPrivate] = useState(true)
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
+
+  const refresh = useCallback(() => {
+    setConfirmingDisconnect(false)
+    return window.api.github
+      .status()
+      .then(setStatus)
+      .catch((error) => {
+        console.error('[github] status failed', error)
+        setMessage('Could not check GitHub status.')
+      })
+  }, [])
+
+  useEffect(() => {
+    // One-time load of main-process state on mount — the canonical exception
+    // to the rule below (syncing with an external system, not derived state).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refresh()
+  }, [refresh])
+
+  const runAction = <T,>(action: () => Promise<T>, done: (value: T) => void): void => {
+    setBusy(true)
+    setMessage(null)
+    action().then(
+      (value) => {
+        done(value)
+        setBusy(false)
+        void refresh()
+      },
+      (error: unknown) => {
+        console.error('[github] action failed', error)
+        setMessage(error instanceof Error ? error.message : 'GitHub command failed.')
+        setBusy(false)
+        void refresh()
+      }
+    )
+  }
+
+  const create = (): void => {
+    const name = repoName.trim()
+    if (!name) {
+      setMessage('Give the repo a name first.')
+      return
+    }
+    runAction(
+      () => window.api.github.createRepo(name, isPrivate),
+      (result) => setMessage(`Created and pushed to ${result.repoUrl}`)
+    )
+  }
+
+  const sync = (): void => {
+    runAction(
+      () => window.api.github.sync(),
+      (result) => setMessage(result.detail)
+    )
+  }
+
+  const disconnect = (): void => {
+    if (!confirmingDisconnect) {
+      setConfirmingDisconnect(true)
+      setMessage('This permanently deletes the GitHub repo. Press Disconnect again to confirm.')
+      return
+    }
+    setConfirmingDisconnect(false)
+    runAction(
+      () => window.api.github.disconnect(),
+      (result) => setMessage(`Deleted ${result.deleted}. Local notes are untouched.`)
+    )
+  }
+
+  return (
+    <section className="settings__section">
+      <h2 className="settings__section-title">GitHub backup</h2>
+      <div className="vault-card">
+        <div className="vault-card__info">
+          {!status ? (
+            <div className="vault-card__meta">Checking GitHub status…</div>
+          ) : !status.ghInstalled ? (
+            <>
+              <div className="vault-card__path">GitHub CLI not found</div>
+              <div className="vault-card__meta">
+                Install it from https://cli.github.com, then press Refresh.
+              </div>
+            </>
+          ) : !status.authed ? (
+            <>
+              <div className="vault-card__path">Not signed in</div>
+              <div className="vault-card__meta">
+                Run <code>gh auth login</code> in a terminal, then press Refresh.
+              </div>
+            </>
+          ) : status.remoteUrl ? (
+            <>
+              <div className="vault-card__path">
+                {status.repoUrl ? (
+                  <a href={status.repoUrl} target="_blank" rel="noreferrer">
+                    {status.repoUrl.replace(/^https?:\/\//, '')}
+                  </a>
+                ) : (
+                  status.remoteUrl
+                )}
+              </div>
+              <div className="vault-card__meta">
+                Signed in as {status.user ?? 'you'} · branch {status.branch ?? 'main'} ·{' '}
+                {status.clean ? 'everything pushed' : 'unpushed changes'}
+              </div>
+              <label className="settings__check">
+                <input
+                  type="checkbox"
+                  checked={autoSync}
+                  onChange={(event) => setAutoSync(event.target.checked)}
+                />
+                Auto-sync
+              </label>
+            </>
+          ) : (
+            <>
+              <div className="vault-card__path">Signed in as {status.user ?? 'you'}</div>
+              <div className="vault-card__meta">
+                Creates a repo, commits every note in the vault, and pushes it.
+              </div>
+              <div className="settings__form">
+                <input
+                  className="settings__input"
+                  value={repoName}
+                  maxLength={100}
+                  spellCheck={false}
+                  placeholder="Repo name"
+                  aria-label="Repo name"
+                  onChange={(event) => setRepoName(event.target.value)}
+                />
+                <label className="settings__check">
+                  <input
+                    type="checkbox"
+                    checked={isPrivate}
+                    onChange={(event) => setIsPrivate(event.target.checked)}
+                  />
+                  Private
+                </label>
+              </div>
+            </>
+          )}
+          {message && <p className="vault-card__meta">{message}</p>}
+        </div>
+        <div className="vault-card__actions">
+          <button
+            type="button"
+            className="btn btn--ghost"
+            disabled={busy}
+            onClick={() => void refresh()}
+          >
+            Refresh
+          </button>
+          {status && status.ghInstalled && status.authed && !status.remoteUrl && (
+            <button type="button" className="btn btn--primary" disabled={busy} onClick={create}>
+              {busy ? 'Creating…' : 'Create repo'}
+            </button>
+          )}
+          {status?.remoteUrl && (
+            <>
+              <button type="button" className="btn btn--primary" disabled={busy} onClick={sync}>
+                {busy ? 'Syncing…' : 'Sync now'}
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={busy}
+                onClick={disconnect}
+                title="Delete the GitHub repo and unlink this vault"
+              >
+                {confirmingDisconnect ? 'Confirm delete' : 'Disconnect'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function Settings(): React.JSX.Element {
   const notes = useAppStore((state) => state.notes)
   const coreState = useAppStore((state) => state.coreState)
   const setCoreState = useAppStore((state) => state.setCoreState)
+  const backgroundListening = useAppStore((state) => state.backgroundListening)
+  const setBackgroundListening = useAppStore((state) => state.setBackgroundListening)
+  const ttsEnabled = useAppStore((state) => state.ttsEnabled)
+  const setTtsEnabled = useAppStore((state) => state.setTtsEnabled)
   const vaultPath = useAppStore((state) => state.vaultPath)
   const vaultReady = useAppStore((state) => state.vaultReady)
   const vaultError = useAppStore((state) => state.vaultError)
@@ -56,6 +250,8 @@ function Settings(): React.JSX.Element {
           </div>
         </section>
 
+        <GithubBackup />
+
         <section className="settings__section">
           <h2 className="settings__section-title">Agent core</h2>
           <div className="settings__row">
@@ -75,6 +271,35 @@ function Settings(): React.JSX.Element {
           <p className="settings__note">
             Current state: <strong>{coreState}</strong>. Voice activity drives this automatically;
             these buttons preview each state.
+          </p>
+        </section>
+
+        <section className="settings__section">
+          <h2 className="settings__section-title">Background agent</h2>
+          <label className="settings__check">
+            <input
+              type="checkbox"
+              checked={backgroundListening}
+              onChange={(event) => setBackgroundListening(event.target.checked)}
+            />
+            Always listening
+          </label>
+          <p className="settings__note">
+            When on, the agent answers what you say even away from the Agent page, and its replies
+            surface in a bubble at the bottom-right. The mic pipeline itself always runs; this only
+            controls background responses.
+          </p>
+          <label className="settings__check">
+            <input
+              type="checkbox"
+              checked={ttsEnabled}
+              onChange={(event) => setTtsEnabled(event.target.checked)}
+            />
+            Spoken replies (Piper · Alba medium)
+          </label>
+          <p className="settings__note">
+            When on, finished replies are read aloud through the voice pipeline. Requires the Piper
+            binary and Alba voice from start.sh.
           </p>
         </section>
 

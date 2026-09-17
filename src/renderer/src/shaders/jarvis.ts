@@ -207,7 +207,7 @@ fn fs_particle(in: VSOut) -> @location(0) vec4f {
   let inner = clamp(1.0 - in.radial, 0.0, 1.0);
   let col = mix(base, hot, inner * inner * 0.5);
 
-  let depthFade = 1.0 / (1.0 + max(in.depth - 3.0, 0.0) * 0.7);
+  let depthFade = 1.0 / (1.0 + max(in.depth - 4.0, 0.0) * 0.7);
   // Soft global throb synced with the simulation ripple.
   let throb = 1.0 + ren.pulse * 0.30 * sin(ren.time * 3.2 - in.radial * 6.0);
   let intensity = (core + glow) * in.energy * ren.brightness * depthFade * throb;

@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { NAV_ITEMS } from '../nav'
+import { orderedNotes } from '../notes'
 import { useAppStore } from '../store/appStore'
 import {
   CalendarIcon,
@@ -44,6 +45,7 @@ function Sidebar(): React.JSX.Element {
     (state) => state.tabs.find((t) => t.id === state.activeTabId) ?? null
   )
   const notes = useAppStore((state) => state.notes)
+  const noteOrder = useAppStore((state) => state.noteOrder)
   const query = useAppStore((state) => state.query)
   const coreState = useAppStore((state) => state.coreState)
   const openNav = useAppStore((state) => state.openNav)
@@ -51,18 +53,46 @@ function Sidebar(): React.JSX.Element {
   const setQuery = useAppStore((state) => state.setQuery)
   const createNote = useAppStore((state) => state.createNote)
   const deleteNote = useAppStore((state) => state.deleteNote)
+  const moveNote = useAppStore((state) => state.moveNote)
+
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dropHint, setDropHint] = useState<{ id: string; before: boolean } | null>(null)
+  const dragIdRef = useRef<string | null>(null)
 
   const activeNoteId = activeTab?.kind === 'note' ? activeTab.noteId : null
   const needle = query.trim().toLowerCase()
-  const visibleNotes = (
-    needle
-      ? notes.filter(
-          (n) => n.title.toLowerCase().includes(needle) || n.content.toLowerCase().includes(needle)
-        )
-      : notes
+  // Manual sidebar order; search only filters, never re-sorts.
+  const visibleNotes = orderedNotes(notes, noteOrder).filter(
+    (n) =>
+      !needle || n.title.toLowerCase().includes(needle) || n.content.toLowerCase().includes(needle)
   )
-    .slice()
-    .sort((a, b) => b.updatedAt - a.updatedAt)
+
+  const clearDrag = (): void => {
+    dragIdRef.current = null
+    setDraggingId(null)
+    setDropHint(null)
+  }
+
+  const positionFromEvent = (event: React.DragEvent<HTMLLIElement>): boolean => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    return event.clientY - rect.top < rect.height / 2
+  }
+
+  const onNoteDrop = (event: React.DragEvent<HTMLLIElement>, noteId: string): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    const dragId = dragIdRef.current
+    clearDrag()
+    if (dragId && dragId !== noteId) moveNote(dragId, noteId, positionFromEvent(event))
+  }
+
+  const onListDrop = (event: React.DragEvent<HTMLUListElement>): void => {
+    // Only fires for empty list space; note drops stop propagation above.
+    event.preventDefault()
+    const dragId = dragIdRef.current
+    clearDrag()
+    if (dragId) moveNote(dragId, null, false)
+  }
 
   return (
     <aside className="sidebar" aria-label="Navigation and notes">
@@ -120,35 +150,60 @@ function Sidebar(): React.JSX.Element {
               {needle ? 'No notes match your search.' : 'No notes yet — create one.'}
             </p>
           ) : (
-            <ul className="sidebar__notes">
-              {visibleNotes.map((note) => (
-                <li key={note.id}>
-                  <div
-                    className={`sidebar__row sidebar__row--note${
-                      activeNoteId === note.id ? ' is-active' : ''
-                    }`}
+            <ul
+              className="sidebar__notes"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={onListDrop}
+            >
+              {visibleNotes.map((note) => {
+                const hint = dropHint?.id === note.id ? dropHint : null
+                return (
+                  <li
+                    key={note.id}
+                    draggable
+                    onDragStart={(event) => {
+                      dragIdRef.current = note.id
+                      setDraggingId(note.id)
+                      event.dataTransfer.effectAllowed = 'move'
+                    }}
+                    onDragEnd={clearDrag}
+                    onDragOver={(event) => {
+                      event.preventDefault()
+                      event.dataTransfer.dropEffect = 'move'
+                      if (dragIdRef.current && dragIdRef.current !== note.id) {
+                        setDropHint({ id: note.id, before: positionFromEvent(event) })
+                      }
+                    }}
+                    onDrop={(event) => onNoteDrop(event, note.id)}
+                    className={`sidebar__note${draggingId === note.id ? ' sidebar__note--dragging' : ''}${hint ? (hint.before ? ' sidebar__note--drop-before' : ' sidebar__note--drop-after') : ''}`}
                   >
-                    <button
-                      type="button"
-                      className="sidebar__icon-btn sidebar__icon-btn--danger"
-                      title="Delete note"
-                      aria-label={`Delete ${note.title || 'Untitled'}`}
-                      onClick={() => deleteNote(note.id)}
+                    <div
+                      className={`sidebar__row sidebar__row--note${
+                        activeNoteId === note.id ? ' is-active' : ''
+                      }`}
                     >
-                      <TrashIcon size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      className="sidebar__note-main"
-                      onClick={() => openNote(note.id)}
-                      title={note.title || 'Untitled'}
-                    >
-                      <span className="sidebar__label">{note.title.trim() || 'Untitled'}</span>
-                      <FileTextIcon size={15} />
-                    </button>
-                  </div>
-                </li>
-              ))}
+                      <button
+                        type="button"
+                        className="sidebar__note-main"
+                        onClick={() => openNote(note.id)}
+                        title={note.title || 'Untitled'}
+                      >
+                        <FileTextIcon size={15} />
+                        <span className="sidebar__label">{note.title.trim() || 'Untitled'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="sidebar__icon-btn sidebar__icon-btn--danger"
+                        title="Delete note"
+                        aria-label={`Delete ${note.title || 'Untitled'}`}
+                        onClick={() => deleteNote(note.id)}
+                      >
+                        <TrashIcon size={14} />
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </div>

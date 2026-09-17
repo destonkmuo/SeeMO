@@ -1,6 +1,6 @@
 """
-Real-time local voice assistant — wake word + transcription, powered entirely by
-whisper.cpp (no openWakeWord, no Silero VAD).
+Real-time local voice assistant — wake word + transcription with whisper.cpp,
+spoken replies with Piper TTS (Alba voice).
 
 Architecture:
   * A background thread continuously transcribes a rolling window of microphone
@@ -10,15 +10,25 @@ Architecture:
     numpy, not an external model) to detect the end of the utterance.
   * The captured buffer is transcribed exactly once with a larger whisper model
     and the plain text is printed to stdout as the finished sentence.
+  * A speaker thread reads {"speak": "..."} JSON commands from stdin, renders
+    them with piper, and plays them via sounddevice. The mic is ducked while
+    our own voice plays so we never transcribe ourselves.
 
-Only whisper.cpp is used for the ML; there are no other model downloads.
-The accompanying `start.sh` builds whisper.cpp, downloads the models, and
-installs the two tiny Python packages for you — nothing is downloaded by hand.
+Stdout carries ONLY finished transcripts (`Transcribed: ...`), one per line —
+the Electron host parses every stdout line as a transcript. Everything else
+goes to stderr.
+
+Only whisper.cpp is used for the ML and only piper for TTS; there are no
+other model downloads. The accompanying `start.sh` builds whisper.cpp,
+downloads the piper binary, fetches all models, and installs the two tiny
+Python packages for you — nothing is downloaded by hand.
 """
 
 from __future__ import annotations
 
+import json
 import os
+import queue
 import re
 import shutil
 import subprocess
@@ -59,6 +69,16 @@ MIN_SILENCE_MS = 600           # trailing silence that ends an utterance
 MAX_UTTERANCE_SECONDS = 15.0   # hard cap on one command
 NO_SPEECH_TIMEOUT = 4.0        # give up if nothing is said after the wake word
 PRE_ROLL_SECONDS = 0.5         # keep a little audio before speech start
+
+# Spoken replies via the piper Python module (Alba voice, files from start.sh).
+# pip wheels bundle the native libs on every OS, so no system packages or
+# downloaded binaries are needed — just `pip install -r requirements.txt`.
+PIPER_VOICE = os.environ.get("PIPER_VOICE", "models/en_GB-alba-medium.onnx")
+TTS_MAX_CHARS = 600            # bound synthesis latency per utterance
+TTS_QUEUE_MAX = 3              # drop oldest if replies queue faster than realtime
+
+# Set in main() once binaries/models are checked; the stdin thread consults it.
+TTS_AVAILABLE = False
 
 
 # --------------------------------------------------------------------------- #
@@ -229,6 +249,142 @@ class EnergyGate:
 
 
 # --------------------------------------------------------------------------- #
+# Text-to-speech — piper binary + Alba voice, driven over stdin
+# --------------------------------------------------------------------------- #
+# The Electron host sends one JSON object per line, e.g. {"speak": "hello"}.
+# Only finished transcripts go to stdout (the host parses every stdout line
+# as a transcript), so all TTS chatter uses stderr.
+
+tts_queue: queue.Queue[str] = queue.Queue(maxsize=TTS_QUEUE_MAX)
+tts_playing = threading.Event()
+
+
+def clean_for_speech(text: str) -> str:
+    """Strip markdown/formatting so Piper reads plain prose, then cap length."""
+    text = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)  # fenced code
+    text = re.sub(r"`([^`]*)`", r"\1", text)                 # inline code
+    text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)    # images -> alt text
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)     # links -> text
+    text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)           # bold
+    text = re.sub(r"__([^_]+)__", r"\1", text)
+    text = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", text)  # italic
+    text = re.sub(r"~~([^~]+)~~", r"\1", text)               # strikethrough
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^>\s?", "", text, flags=re.MULTILINE)
+    text = re.sub(r"<[^>]+>", " ", text)                     # stray html tags
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > TTS_MAX_CHARS:
+        cut = text.rfind(" ", 0, TTS_MAX_CHARS)
+        text = text[: cut if cut > 0 else TTS_MAX_CHARS].rstrip()
+    return text
+
+
+def speak_text(text: str) -> None:
+    """Queue cleaned text for speech; drop oldest when falling behind."""
+    cleaned = clean_for_speech(text)
+    if not cleaned:
+        return
+    try:
+        tts_queue.put_nowait(cleaned)
+    except queue.Full:
+        try:
+            tts_queue.get_nowait()  # drop oldest, stay live
+        except queue.Empty:
+            pass
+        tts_queue.put_nowait(cleaned)
+    sys.stderr.write(f"[tts] queued {len(cleaned)} chars\n")
+
+
+def synthesize_speech(text: str, out_path: str) -> None:
+    """Render text to a wav file with piper (same interpreter, text via stdin)."""
+    proc = subprocess.run(
+        [sys.executable, "-m", "piper", "--model", PIPER_VOICE, "--output_file", out_path],
+        input=text,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"piper failed: {proc.stderr.strip()}")
+
+
+def read_wav_mono16(path: str) -> tuple[np.ndarray, int]:
+    """Load a 16-bit mono wav (piper's native output) with its sample rate."""
+    with wave.open(path, "rb") as wav:
+        if wav.getsampwidth() != 2 or wav.getnchannels() != 1:
+            raise RuntimeError("unexpected piper wav format (want 16-bit mono)")
+        rate = wav.getframerate()
+        frames = wav.readframes(wav.getnframes())
+    if not frames:
+        raise RuntimeError("piper produced empty audio")
+    return np.frombuffer(frames, dtype=np.int16).copy(), rate
+
+
+class Speaker(threading.Thread):
+    """Serializes TTS: synthesize, duck the mic, play, re-arm the mic."""
+
+    def __init__(self, listener: WakeListener) -> None:
+        super().__init__(daemon=True)
+        self._listener = listener
+
+    def run(self) -> None:
+        while True:
+            text = tts_queue.get()
+            try:
+                tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                tmp.close()
+                try:
+                    synthesize_speech(text, tmp.name)
+                    samples, rate = read_wav_mono16(tmp.name)
+                finally:
+                    os.unlink(tmp.name)
+
+                # Duck the mic so we never transcribe our own voice. The main
+                # loop drains (but ignores) mic chunks while this is set.
+                self._listener.enable(False)
+                tts_playing.set()
+                try:
+                    sd.play(samples, samplerate=rate)
+                    sd.wait()
+                finally:
+                    tts_playing.clear()
+                    self._listener.reset()
+                    self._listener.enable(True)
+                sys.stderr.write("[tts] done\n")
+            except Exception as exc:  # noqa: BLE001
+                tts_playing.clear()
+                self._listener.enable(True)
+                sys.stderr.write(f"[error] tts failed: {exc}\n")
+
+
+def stdin_commands() -> None:
+    """Consume {"speak": "..."} JSON lines from stdin (Electron host)."""
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            cmd = json.loads(line)
+        except json.JSONDecodeError:
+            sys.stderr.write(f"[warn] ignoring non-JSON stdin line: {line[:80]}\n")
+            continue
+        if isinstance(cmd, dict) and isinstance(cmd.get("speak"), str):
+            if TTS_AVAILABLE:
+                speak_text(cmd["speak"])
+            else:
+                sys.stderr.write("[warn] TTS unavailable, speak request ignored\n")
+
+
+def tts_available() -> bool:
+    """True when the piper module is installed and the Alba voice resolves."""
+    import importlib.util
+
+    if importlib.util.find_spec("piper") is None:
+        return False
+    return os.path.exists(PIPER_VOICE)
+
+
+# --------------------------------------------------------------------------- #
 # Main pipeline
 # --------------------------------------------------------------------------- #
 
@@ -247,8 +403,22 @@ def main() -> None:
             )
             sys.exit(1)
 
+    global TTS_AVAILABLE
+    TTS_AVAILABLE = tts_available()
+
     listener = WakeListener()
     listener.start()
+
+    if TTS_AVAILABLE:
+        sys.stderr.write("[info] TTS ready (piper + alba-medium voice)\n")
+        threading.Thread(target=stdin_commands, daemon=True, name="stdin").start()
+        Speaker(listener).start()
+    else:
+        sys.stderr.write(
+            f"[warn] TTS disabled — piper module or voice missing "
+            f"(PIPER_VOICE={PIPER_VOICE}); run start.sh\n"
+        )
+
     sys.stderr.write("[info] listening for 'hey simo'... (speak to interact)\n")
 
     state = "LISTEN"
@@ -290,6 +460,11 @@ def main() -> None:
         while True:
             block, _overflowed = stream.read(CHUNK_SAMPLES)
             chunk = block.flatten()
+
+            if tts_playing.is_set():
+                # Our own voice is on the speaker — drain the mic without
+                # feeding the wake listener or the capture state machine.
+                continue
 
             if state == "LISTEN":
                 listener.add(chunk)

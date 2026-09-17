@@ -11,7 +11,9 @@
 #   2. clones + builds whisper.cpp (macOS / Linux) or downloads the prebuilt
 #      whisper-cli.exe (Windows)
 #   3. downloads the whisper models (tiny for the wake word, base for commands)
-#   4. creates a Python virtualenv and installs numpy + sounddevice
+#   3b. downloads the Piper voice (Alba, medium quality) for spoken replies
+#      (the piper engine itself arrives via pip — no binary download needed)
+#   4. creates a Python virtualenv and installs numpy + sounddevice + piper-tts
 #   5. launches pipeline.py
 #
 # Usage:
@@ -29,6 +31,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENDOR_DIR="$ROOT/vendor"
 WHISPER_DIR="$VENDOR_DIR/whisper.cpp"
 WHISPER_BIN_DIR="$VENDOR_DIR/whisper-bin"
+PIPER_VOICE_NAME="en_GB-alba-medium"
 MODEL_DIR="$ROOT/models"
 VENV_DIR="$ROOT/.venv"
 
@@ -246,6 +249,10 @@ else
 fi
 log "whisper-cli: $WHISPER_CLI"
 
+# NOTE: piper TTS needs no binary download — `pip install piper-tts` in
+# section 4 ships the native libs for every OS. Only the voice model below
+# is fetched here.
+
 # --------------------------------------------------------------------------- #
 # 3. Download whisper models (curl preferred, python urllib fallback for Win)
 # --------------------------------------------------------------------------- #
@@ -269,6 +276,24 @@ download_model tiny 75
 download_model base 142
 
 # --------------------------------------------------------------------------- #
+# 3b. Download the Piper voice for spoken replies (Alba, medium quality)
+# --------------------------------------------------------------------------- #
+PIPER_VOICE_ONNX="$MODEL_DIR/$PIPER_VOICE_NAME.onnx"
+PIPER_VOICE_JSON="$MODEL_DIR/$PIPER_VOICE_NAME.onnx.json"
+
+for voice_file in "$PIPER_VOICE_ONNX" "$PIPER_VOICE_JSON"; do
+  if [ -f "$voice_file" ]; then
+    log "voice file $(basename "$voice_file") already present"
+    continue
+  fi
+  log "downloading $(basename "$voice_file")"
+  download_file \
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/$(basename "$voice_file")" \
+    "$voice_file" \
+    || err "failed to download $(basename "$voice_file")"
+done
+
+# --------------------------------------------------------------------------- #
 # 4. Python virtualenv + deps (venv layout differs on Windows)
 # --------------------------------------------------------------------------- #
 if [ "$OS" = "windows" ]; then
@@ -284,7 +309,7 @@ if [ ! -d "$VENV_DIR" ]; then
   "$PYTHON_BIN" -m venv "$VENV_DIR" \
     || err "failed to create virtualenv — on Windows install Python from python.org with 'Add to PATH' checked"
 fi
-log "installing python dependencies (numpy, sounddevice)"
+log "installing python dependencies (numpy, sounddevice, piper-tts)"
 "$VENV_PIP" install -q --disable-pip-version-check -r "$ROOT/requirements.txt" \
   || err "pip install failed"
 
@@ -304,4 +329,5 @@ exec env \
   WHISPER_CLI="$WHISPER_CLI" \
   WHISPER_WAKE_MODEL="$MODEL_DIR/ggml-tiny.bin" \
   WHISPER_MODEL="$MODEL_DIR/ggml-base.bin" \
+  PIPER_VOICE="$MODEL_DIR/$PIPER_VOICE_NAME.onnx" \
   "$VENV_PYTHON" "$ROOT/pipeline.py"

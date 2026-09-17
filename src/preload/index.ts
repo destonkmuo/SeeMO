@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { GithubApi } from './github'
 import type { VaultApi } from './vault'
 
 // Custom APIs for renderer
@@ -24,7 +25,15 @@ const api = {
       ipcRenderer.removeListener('voice:transcript', listener)
     }
   },
-  vault
+  vault,
+  speak: (text: string): Promise<boolean> => ipcRenderer.invoke('voice:speak', text),
+  github: {
+    status: () => ipcRenderer.invoke('github:status'),
+    createRepo: (name: string, isPrivate: boolean) =>
+      ipcRenderer.invoke('github:create', name, isPrivate),
+    sync: (message?: string) => ipcRenderer.invoke('github:sync', message),
+    disconnect: () => ipcRenderer.invoke('github:disconnect')
+  } satisfies GithubApi
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

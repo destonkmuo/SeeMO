@@ -1,6 +1,12 @@
+import { useRef, useState } from 'react'
 import { NAV_BY_KEY, NAV_LABELS } from '../nav'
 import { useAppStore } from '../store/appStore'
 import { FileTextIcon, PlusIcon, XIcon } from './icons'
+
+interface DropHint {
+  id: string
+  before: boolean
+}
 
 function TabBar(): React.JSX.Element {
   const tabs = useAppStore((state) => state.tabs)
@@ -9,11 +15,48 @@ function TabBar(): React.JSX.Element {
   const coreState = useAppStore((state) => state.coreState)
   const setActiveTab = useAppStore((state) => state.setActiveTab)
   const closeTab = useAppStore((state) => state.closeTab)
+  const moveTab = useAppStore((state) => state.moveTab)
   const createNote = useAppStore((state) => state.createNote)
+
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dropHint, setDropHint] = useState<DropHint | null>(null)
+  const dragIdRef = useRef<string | null>(null)
+
+  const clearDrag = (): void => {
+    dragIdRef.current = null
+    setDraggingId(null)
+    setDropHint(null)
+  }
+
+  // Which side of the hovered tab the dragged tab would land on.
+  const positionFromEvent = (event: React.DragEvent<HTMLDivElement>): boolean => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    return event.clientX - rect.left < rect.width / 2
+  }
+
+  const onTabDrop = (event: React.DragEvent<HTMLDivElement>, tabId: string): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    const dragId = dragIdRef.current
+    clearDrag()
+    if (dragId && dragId !== tabId) moveTab(dragId, tabId, positionFromEvent(event))
+  }
+
+  const onListDrop = (event: React.DragEvent<HTMLDivElement>): void => {
+    // Only fires for empty bar space; tab drops stop propagation above.
+    event.preventDefault()
+    const dragId = dragIdRef.current
+    clearDrag()
+    if (dragId) moveTab(dragId, null, false)
+  }
 
   return (
     <div className="tabbar" role="tablist" aria-label="Open tabs">
-      <div className="tabbar__list">
+      <div
+        className="tabbar__list"
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={onListDrop}
+      >
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId
           const label =
@@ -21,11 +64,27 @@ function TabBar(): React.JSX.Element {
               ? notes.find((n) => n.id === tab.noteId)?.title.trim() || 'Untitled'
               : NAV_LABELS[tab.kind]
           const Icon = tab.kind === 'note' ? FileTextIcon : NAV_BY_KEY[tab.kind].icon
+          const hint = dropHint?.id === tab.id ? dropHint : null
 
           return (
             <div
               key={tab.id}
-              className={`tab${isActive ? ' is-active' : ''}${tab.kind === 'note' ? ' tab--note' : ''}`}
+              draggable
+              onDragStart={(event) => {
+                dragIdRef.current = tab.id
+                setDraggingId(tab.id)
+                event.dataTransfer.effectAllowed = 'move'
+              }}
+              onDragEnd={clearDrag}
+              onDragOver={(event) => {
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+                if (dragIdRef.current && dragIdRef.current !== tab.id) {
+                  setDropHint({ id: tab.id, before: positionFromEvent(event) })
+                }
+              }}
+              onDrop={(event) => onTabDrop(event, tab.id)}
+              className={`tab${isActive ? ' is-active' : ''}${tab.kind === 'note' ? ' tab--note' : ''}${draggingId === tab.id ? ' tab--dragging' : ''}${hint ? (hint.before ? ' tab--drop-before' : ' tab--drop-after') : ''}`}
             >
               <button
                 type="button"

@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { respondTo } from '../agentBrain'
 import { useAppStore } from '../store/appStore'
 
 // A fresh transcript means the user spoke: process it as `working`, fall
@@ -64,8 +65,14 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
 
       // Drive the core animation from voice activity. getState() avoids
       // re-rendering this provider on every state change.
-      const { setCoreState } = useAppStore.getState()
+      const { setCoreState, addChatMessage, backgroundListening } = useAppStore.getState()
       setCoreState('working')
+      // Spoken commands also land in the agent chat as user messages.
+      addChatMessage('user', text)
+      // Background listening: answer out loud in state + chat even when the
+      // Agent page isn't open. Same engine as typed messages, so the flow
+      // (and its supersede guards) stay identical.
+      if (backgroundListening) respondTo(text)
       if (workingTimer.current) clearTimeout(workingTimer.current)
       if (sleepTimer.current) clearTimeout(sleepTimer.current)
       workingTimer.current = setTimeout(() => setCoreState('idle'), WORKING_TIMEOUT_MS)

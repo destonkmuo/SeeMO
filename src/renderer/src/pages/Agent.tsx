@@ -1,4 +1,7 @@
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { respondTo } from '../agentBrain'
 import JarvisCore from '../components/JarvisCore'
+import { SendIcon, TrashIcon } from '../components/icons'
 import { type CoreState, useAppStore } from '../store/appStore'
 
 const STATES: { key: CoreState; label: string; hint: string }[] = [
@@ -8,37 +11,148 @@ const STATES: { key: CoreState; label: string; hint: string }[] = [
   { key: 'speaking', label: 'Speaking', hint: 'Talking back' }
 ]
 
+function timeOfDay(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
 function Agent(): React.JSX.Element {
   const coreState = useAppStore((state) => state.coreState)
   const setCoreState = useAppStore((state) => state.setCoreState)
+  const messages = useAppStore((state) => state.messages)
+  const addChatMessage = useAppStore((state) => state.addChatMessage)
+  const clearChat = useAppStore((state) => state.clearChat)
   const activeHint = STATES.find((s) => s.key === coreState)?.hint ?? ''
+
+  const [draft, setDraft] = useState('')
+  const [pendingReply, setPendingReply] = useState(false)
+  const listRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  // Keep the newest message in view.
+  useEffect(() => {
+    const el = listRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [messages, pendingReply])
+
+  // Grow the input with its content, up to a cap.
+  useLayoutEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`
+  }, [draft])
+
+  const send = (): void => {
+    const text = draft.trim()
+    if (!text) return
+    setDraft('')
+    addChatMessage('user', text)
+    setPendingReply(true)
+    // Shared engine also powers background replies; the callback swaps the
+    // thinking bubble for the live reply the moment streaming starts.
+    respondTo(text, () => setPendingReply(false))
+  }
 
   return (
     <main className="agent">
-      <div className="agent__core">
-        <JarvisCore />
+      <div className="agent__stage">
+        <div className="agent__core">
+          <JarvisCore />
+        </div>
+        <div className="agent__controls">
+          {STATES.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              className="agent__toggle"
+              disabled={s.key === coreState}
+              title={s.hint}
+              onClick={() => setCoreState(s.key)}
+            >
+              {s.label}
+            </button>
+          ))}
+          {coreState === 'working' ? (
+            <span className="agent__thinking">core thinking</span>
+          ) : (
+            <span className="agent__status">
+              Status: <strong>{coreState}</strong> — {activeHint}
+            </span>
+          )}
+        </div>
       </div>
-      <div className="agent__controls">
-        {STATES.map((s) => (
-          <button
-            key={s.key}
-            type="button"
-            className="agent__toggle"
-            disabled={s.key === coreState}
-            title={s.hint}
-            onClick={() => setCoreState(s.key)}
-          >
-            {s.label}
-          </button>
-        ))}
-        {coreState === 'working' ? (
-          <span className="agent__thinking">core thinking</span>
-        ) : (
-          <span className="agent__status">
-            Status: <strong>{coreState}</strong> — {activeHint}
+
+      <section className="agent__chat" aria-label="Agent chat">
+        <header className="chat__header">
+          <span className="chat__title">Agent</span>
+          <span className="chat__tag">Local preview</span>
+          <span className="chat__state">
+            <span className={`chat__dot chat__dot--${coreState}`} />
+            {coreState}
           </span>
-        )}
-      </div>
+          <button
+            type="button"
+            className="chat__clear"
+            title="Clear chat"
+            aria-label="Clear chat"
+            onClick={() => clearChat()}
+          >
+            <TrashIcon size={14} />
+          </button>
+        </header>
+
+        <div className="chat__messages" ref={listRef}>
+          {messages.length === 0 && !pendingReply ? (
+            <div className="msg msg--agent">
+              <div className="msg__bubble">
+                Hey — I&apos;m SeeMO. Type below, or just speak and your words will land here.
+              </div>
+            </div>
+          ) : (
+            messages.map((message) => (
+              <div key={message.id} className={`msg msg--${message.role}`}>
+                <div className="msg__bubble">{message.text || '…'}</div>
+                <span className="msg__time">{timeOfDay(message.timestamp)}</span>
+              </div>
+            ))
+          )}
+          {pendingReply && (
+            <div className="msg msg--agent">
+              <div className="msg__bubble">
+                <span className="agent__thinking">core thinking</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="chat__inputbar">
+          <textarea
+            ref={inputRef}
+            className="chat__input"
+            rows={1}
+            value={draft}
+            placeholder="Message the agent…"
+            spellCheck={false}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                send()
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="chat__send"
+            title="Send"
+            aria-label="Send"
+            disabled={!draft.trim()}
+            onClick={send}
+          >
+            <SendIcon size={16} />
+          </button>
+        </div>
+      </section>
     </main>
   )
 }

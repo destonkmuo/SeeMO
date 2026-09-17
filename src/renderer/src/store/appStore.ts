@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { noteFileBase, titleFromFileName, uniqueFileName } from '../notes'
+import { noteFileBase, orderedNotes, titleFromFileName, uniqueFileName } from '../notes'
 
 export type NavKey = 'home' | 'todo' | 'calendar' | 'agent' | 'activity' | 'misc' | 'settings'
 
@@ -23,21 +23,44 @@ export interface Note {
  */
 export type Tab = { id: string; kind: 'note'; noteId: string } | { id: string; kind: NavKey }
 
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'agent'
+  text: string
+  timestamp: number
+}
+
+/** Cap persisted history so the store stays small. */
+const MAX_CHAT_MESSAGES = 100
+
 interface AppState {
   coreState: CoreState
   notes: Note[]
+  /** Manual sidebar order (note ids). Missing ids render first, by recency. */
+  noteOrder: string[]
   tabs: Tab[]
   activeTabId: string | null
   query: string
   vaultPath: string | null
   vaultReady: boolean
   vaultError: string | null
+  messages: ChatMessage[]
+  autoSync: boolean
+  backgroundListening: boolean
+  lastSeenAgentId: string | null
+  ttsEnabled: boolean
   setCoreState: (state: CoreState) => void
+  setAutoSync: (enabled: boolean) => void
+  setBackgroundListening: (enabled: boolean) => void
+  setTtsEnabled: (enabled: boolean) => void
+  markAgentSeen: () => void
   setQuery: (query: string) => void
   setActiveTab: (id: string) => void
   openNav: (kind: NavKey) => void
   openNote: (noteId: string) => void
   closeTab: (id: string) => void
+  moveTab: (dragId: string, targetId: string | null, before: boolean) => void
+  moveNote: (dragId: string, targetId: string | null, before: boolean) => void
   createNote: () => string
   updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'content'>>) => void
   deleteNote: (id: string) => void
@@ -45,6 +68,9 @@ interface AppState {
   refreshVault: () => Promise<void>
   saveNoteToVault: (id: string) => Promise<void>
   chooseVault: () => Promise<string | null>
+  addChatMessage: (role: ChatMessage['role'], text: string) => string
+  updateChatMessage: (id: string, text: string) => void
+  clearChat: () => void
 }
 
 function uid(): string {
@@ -75,13 +101,30 @@ export const useAppStore = create<AppState>()(
       // The mic pipeline is always listening, so the core starts attentive.
       coreState: 'idle',
       notes: [],
+      noteOrder: [],
       tabs: [initialTab],
       activeTabId: initialTab.id,
       query: '',
       vaultPath: null,
       vaultReady: false,
       vaultError: null,
+      messages: [],
+      autoSync: false,
+      backgroundListening: false,
+      lastSeenAgentId: null,
+      ttsEnabled: true,
       setCoreState: (coreState) => set({ coreState }),
+      setAutoSync: (autoSync) => set({ autoSync }),
+      setBackgroundListening: (backgroundListening) => set({ backgroundListening }),
+      setTtsEnabled: (ttsEnabled) => set({ ttsEnabled }),
+      markAgentSeen: () =>
+        set((state) => {
+          let latest: string | null = null
+          for (const message of state.messages) {
+            if (message.role === 'agent') latest = message.id
+          }
+          return latest ? { lastSeenAgentId: latest } : {}
+        }),
       setQuery: (query) => set({ query }),
       setActiveTab: (id) => set({ activeTabId: id }),
       openNav: (kind) =>
@@ -109,6 +152,35 @@ export const useAppStore = create<AppState>()(
               : state.activeTabId
           return { tabs, activeTabId }
         }),
+      moveTab: (dragId, targetId, before) =>
+        set((state) => {
+          if (dragId === targetId) return {}
+          const from = state.tabs.findIndex((t) => t.id === dragId)
+          if (from < 0) return {}
+          const dragged = state.tabs[from]
+          const without = state.tabs.filter((t) => t.id !== dragId)
+          // Dropped on empty bar space (or a stale target): pin to the end.
+          if (!targetId) return { tabs: [...without, dragged] }
+          let to = without.findIndex((t) => t.id === targetId)
+          if (to < 0) return { tabs: [...without, dragged] }
+          if (!before) to += 1
+          return { tabs: [...without.slice(0, to), dragged, ...without.slice(to)] }
+        }),
+      moveNote: (dragId, targetId, before) =>
+        set((state) => {
+          if (dragId === targetId) return {}
+          // Canonical full order first, so a partial/stale noteOrder heals
+          // itself instead of dropping notes.
+          const full = orderedNotes(state.notes, state.noteOrder).map((n) => n.id)
+          if (!full.includes(dragId)) return {}
+          const without = full.filter((id) => id !== dragId)
+          // Dropped on empty list space (or a stale target): pin to the end.
+          if (!targetId) return { noteOrder: [...without, dragId] }
+          let to = without.indexOf(targetId)
+          if (to < 0) return { noteOrder: [...without, dragId] }
+          if (!before) to += 1
+          return { noteOrder: [...without.slice(0, to), dragId, ...without.slice(to)] }
+        }),
       createNote: () => {
         const note = blankNote()
         const tab = noteTab(note.id)
@@ -117,6 +189,7 @@ export const useAppStore = create<AppState>()(
           const fileName = uniqueFileName(noteFileBase(note.title), taken)
           return {
             notes: [{ ...note, fileName }, ...state.notes],
+            noteOrder: [note.id, ...state.noteOrder.filter((id) => id !== note.id)],
             tabs: [...state.tabs, tab],
             activeTabId: tab.id
           }
@@ -141,11 +214,12 @@ export const useAppStore = create<AppState>()(
         const removeFile = Boolean(removed?.fileName && get().vaultReady)
         set((state) => {
           const notes = state.notes.filter((n) => n.id !== id)
+          const noteOrder = state.noteOrder.filter((noteId) => noteId !== id)
           const tabs = state.tabs.filter((t) => !(t.kind === 'note' && t.noteId === id))
           const activeTabId = tabs.some((t) => t.id === state.activeTabId)
             ? state.activeTabId
             : (tabs[0]?.id ?? null)
-          return { notes, tabs, activeTabId }
+          return { notes, noteOrder, tabs, activeTabId }
         })
         if (removeFile && removed) {
           void window.api.vault.remove(removed.fileName).catch((error) => {
@@ -224,7 +298,20 @@ export const useAppStore = create<AppState>()(
               const activeTabId = withTabs.some((t) => t.id === state.activeTabId)
                 ? state.activeTabId
                 : withTabs[0].id
-              return { notes, tabs: withTabs, activeTabId }
+              // Keep the manual order, drop stale ids, surface unpositioned
+              // notes (imports, pre-vault notes) up top by recency.
+              const keptOrder = state.noteOrder.filter((id) => noteIds.has(id))
+              const keptSet = new Set(keptOrder)
+              const unpositioned = notes
+                .filter((n) => !keptSet.has(n.id))
+                .sort((a, b) => b.updatedAt - a.updatedAt)
+                .map((n) => n.id)
+              return {
+                notes,
+                noteOrder: [...unpositioned, ...keptOrder],
+                tabs: withTabs,
+                activeTabId
+              }
             })
 
             for (const pending of pendingWrites) {
@@ -296,20 +383,49 @@ export const useAppStore = create<AppState>()(
           set({ vaultError: 'Could not change the vault folder.' })
           return null
         }
-      }
+      },
+      addChatMessage: (role, text) => {
+        const message: ChatMessage = { id: uid(), role, text, timestamp: Date.now() }
+        set((state) => ({ messages: [...state.messages, message].slice(-MAX_CHAT_MESSAGES) }))
+        return message.id
+      },
+      updateChatMessage: (id, text) =>
+        set((state) => ({
+          messages: state.messages.map((m) => (m.id === id ? { ...m, text } : m))
+        })),
+      clearChat: () => set({ messages: [] })
     }),
     {
       name: 'seemo-store',
-      // Only documents and open tabs are worth persisting; UI state resets.
+      // Only documents, open tabs, sidebar order and chat history persist.
       partialize: (state) => ({
         notes: state.notes,
+        noteOrder: state.noteOrder,
         tabs: state.tabs,
-        activeTabId: state.activeTabId
+        activeTabId: state.activeTabId,
+        messages: state.messages.slice(-MAX_CHAT_MESSAGES),
+        autoSync: state.autoSync,
+        backgroundListening: state.backgroundListening,
+        lastSeenAgentId: state.lastSeenAgentId,
+        ttsEnabled: state.ttsEnabled
       }),
       // Drop note tabs whose note no longer exists (e.g. after an older
       // session) and always leave at least one tab open.
       merge: (persisted, current) => {
-        const saved = (persisted ?? {}) as Partial<Pick<AppState, 'notes' | 'tabs' | 'activeTabId'>>
+        const saved = (persisted ?? {}) as Partial<
+          Pick<
+            AppState,
+            | 'notes'
+            | 'noteOrder'
+            | 'tabs'
+            | 'activeTabId'
+            | 'messages'
+            | 'autoSync'
+            | 'backgroundListening'
+            | 'lastSeenAgentId'
+            | 'ttsEnabled'
+          >
+        >
         const notes = saved.notes ?? []
         const noteIds = new Set(notes.map((n) => n.id))
         const restored = (saved.tabs ?? []).filter(
@@ -319,7 +435,28 @@ export const useAppStore = create<AppState>()(
         const activeTabId = tabs.some((t) => t.id === saved.activeTabId)
           ? (saved.activeTabId as string)
           : tabs[0].id
-        return { ...current, notes, tabs, activeTabId }
+        const messages = (saved.messages ?? []).slice(-MAX_CHAT_MESSAGES)
+        const noteOrder = (saved.noteOrder ?? []).filter((id) => noteIds.has(id))
+        // Never pop the bubble for history that predates this launch: seed
+        // "seen" at the newest restored agent message.
+        let lastSeenAgentId = saved.lastSeenAgentId ?? null
+        if (!lastSeenAgentId) {
+          for (const message of messages) {
+            if (message.role === 'agent') lastSeenAgentId = message.id
+          }
+        }
+        return {
+          ...current,
+          notes,
+          noteOrder,
+          tabs,
+          activeTabId,
+          messages,
+          autoSync: saved.autoSync ?? false,
+          backgroundListening: saved.backgroundListening ?? false,
+          ttsEnabled: saved.ttsEnabled ?? true,
+          lastSeenAgentId
+        }
       }
     }
   )

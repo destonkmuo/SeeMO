@@ -103,7 +103,9 @@ function mat4Mul(a: Float32Array, b: Float32Array): Float32Array {
 
 function buildViewProj(): Float32Array {
   const proj = mat4Perspective((50 * Math.PI) / 180, 1, 0.1, 100)
-  const view = mat4LookAt(0, 0.5, 3.0, 0, 0, 0, 0, 1, 0)
+  // Stepped back so the orb — including its speaking/working expansion —
+  // sits comfortably inside the frame instead of clipping the edges.
+  const view = mat4LookAt(0, 0.67, 4.0, 0, 0, 0, 0, 1, 0)
   return mat4Mul(proj, view)
 }
 
