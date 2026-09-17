@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { JARVIS_COMPOSITE, JARVIS_COMPUTE, JARVIS_PARTICLE } from '../shaders/jarvis'
-import { useAppStore } from '../store/appStore'
+import { type CoreState, useAppStore } from '../store/appStore'
 
 const PARTICLE_COUNT = 40000
 const PARTICLE_FLOATS = 8
@@ -9,8 +9,8 @@ const WORKGROUP_SIZE = 64
 const RESOLUTION_CAP = 1600
 const HDR_FORMAT: GPUTextureFormat = 'rgba16float'
 
-const SIM_SIZE = 32
-const RENDER_SIZE = 96
+const SIM_SIZE = 48
+const RENDER_SIZE = 112
 const COMPOSITE_SIZE = 32
 
 function mat4Perspective(fovY: number, aspect: number, near: number, far: number): Float32Array {
@@ -138,15 +138,97 @@ function buildParticles(): Float32Array<ArrayBuffer> {
   return data
 }
 
+/** Smoothed animation parameters driven by the core state. */
+interface CoreParams {
+  energy: number
+  pulse: number
+  swirl: number
+  breathAmp: number
+  turbulence: number
+  brightness: number
+  sizeScale: number
+  colorMix: number
+  warm: number
+  radius: number
+}
+
+const PARAM_KEYS = [
+  'energy',
+  'pulse',
+  'swirl',
+  'breathAmp',
+  'turbulence',
+  'brightness',
+  'sizeScale',
+  'colorMix',
+  'warm',
+  'radius'
+] as const
+
+const STATE_TARGETS: Record<CoreState, CoreParams> = {
+  // Dormant: dim, desaturated, contracted, barely drifting.
+  sleep: {
+    energy: 0.0,
+    pulse: 0.15,
+    swirl: 0.25,
+    breathAmp: 0.16,
+    turbulence: 0.35,
+    brightness: 0.028,
+    sizeScale: 0.013,
+    colorMix: 0.0,
+    warm: 0.0,
+    radius: 0.82
+  },
+  // Listening: attentive blue, gentle outward ripple, gathered core.
+  idle: {
+    energy: 0.06,
+    pulse: 0.8,
+    swirl: 0.8,
+    breathAmp: 0.1,
+    turbulence: 0.9,
+    brightness: 0.05,
+    sizeScale: 0.016,
+    colorMix: 0.65,
+    warm: 0.0,
+    radius: 1.0
+  },
+  // On an objective: fast amber churn, expanded cloud.
+  working: {
+    energy: 0.45,
+    pulse: 0.25,
+    swirl: 2.2,
+    breathAmp: 0.06,
+    turbulence: 2.2,
+    brightness: 0.07,
+    sizeScale: 0.017,
+    colorMix: 0.8,
+    warm: 1.0,
+    radius: 1.08
+  },
+  // Talking back: strong vibration, bright cyan, speech-cadence throb.
+  speaking: {
+    energy: 1.0,
+    pulse: 0.6,
+    swirl: 1.0,
+    breathAmp: 0.22,
+    turbulence: 1.6,
+    brightness: 0.085,
+    sizeScale: 0.019,
+    colorMix: 1.0,
+    warm: 0.15,
+    radius: 1.12
+  }
+}
+
 function JarvisCore(): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const speaking = useAppStore((state) => state.speaking)
-  const speakingRef = useRef(speaking)
+  const coreState = useAppStore((state) => state.coreState)
+  const stateRef = useRef<CoreState>(coreState)
   const [unsupported, setUnsupported] = useState(() => !('gpu' in navigator))
 
   useEffect(() => {
-    speakingRef.current = speaking
-  }, [speaking])
+    stateRef.current = coreState
+  }, [coreState])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -365,8 +447,7 @@ function JarvisCore(): React.JSX.Element {
       resizeObserver = new ResizeObserver(resize)
       resizeObserver.observe(canvas)
 
-      let colorMix = 0
-      let speakingLevel = 0
+      const cur: CoreParams = { ...STATE_TARGETS.idle }
       let lastTime = performance.now()
       const startTime = lastTime
 
@@ -378,35 +459,42 @@ function JarvisCore(): React.JSX.Element {
         lastTime = now
         const time = (now - startTime) / 1000
 
-        const target = speakingRef.current ? 1 : 0
-        speakingLevel += (target - speakingLevel) * 0.08
-        if (speakingRef.current) {
-          colorMix += (1 - colorMix) * 0.04
+        // Ease every parameter toward the active state's targets so
+        // transitions cross-fade instead of popping.
+        const tgt = STATE_TARGETS[stateRef.current]
+        const k = 1 - Math.exp(-dt * 2.8)
+        for (const key of PARAM_KEYS) {
+          cur[key] += (tgt[key] - cur[key]) * k
         }
 
         simData[0] = dt
         simData[1] = time
         simData[2] = PARTICLE_COUNT
-        simData[3] = speakingLevel
-        simData[4] = 0.1 + speakingLevel * 0.2
-        simData[5] = 0.9 + speakingLevel * 1.8
+        simData[3] = cur.energy
+        simData[4] = cur.breathAmp
+        simData[5] = cur.turbulence
+        simData[6] = cur.pulse
+        simData[7] = cur.swirl
+        simData[8] = cur.radius
         gpu.queue.writeBuffer(simBuffer, 0, simData)
 
         renderData.set(viewProj, 0)
         renderData[16] = canvas.width
         renderData[17] = canvas.height
         renderData[18] = time
-        renderData[19] = speakingLevel
-        renderData[20] = colorMix
-        renderData[21] = 0.016 + speakingLevel * 0.003
-        renderData[22] = 0.045 + speakingLevel * 0.035
+        renderData[19] = cur.energy
+        renderData[20] = cur.colorMix
+        renderData[21] = cur.sizeScale
+        renderData[22] = cur.brightness
+        renderData[23] = cur.pulse
+        renderData[24] = cur.warm
         gpu.queue.writeBuffer(renderBuffer, 0, renderData)
 
         compositeData[0] = canvas.width
         compositeData[1] = canvas.height
         compositeData[2] = time
-        compositeData[3] = colorMix
-        compositeData[4] = speakingLevel
+        compositeData[3] = cur.colorMix
+        compositeData[4] = cur.energy
         gpu.queue.writeBuffer(compositeBuffer, 0, compositeData)
 
         const encoder = gpu.createCommandEncoder()

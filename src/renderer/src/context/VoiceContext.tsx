@@ -1,6 +1,13 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { useAppStore } from '../store/appStore'
+
+// A fresh transcript means the user spoke: process it as `working`, fall
+// back to `idle` (listening) after a few quiet seconds, and drift to `sleep`
+// after prolonged silence.
+const WORKING_TIMEOUT_MS = 8000
+const SLEEP_TIMEOUT_MS = 90000
 
 export interface VoiceTranscript {
   id: string
@@ -39,11 +46,30 @@ declare global {
  */
 export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const [transcripts, setTranscripts] = useState<VoiceTranscript[]>([])
+  const workingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sleepTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Clear activity timers on unmount.
+  useEffect(() => {
+    return () => {
+      if (workingTimer.current) clearTimeout(workingTimer.current)
+      if (sleepTimer.current) clearTimeout(sleepTimer.current)
+    }
+  }, [])
 
   // Receive transcriptions forwarded from the main process.
   useEffect(() => {
     return window.api.onVoiceTranscript((text) => {
       setTranscripts((prev) => [...prev, { id: crypto.randomUUID(), text, timestamp: Date.now() }])
+
+      // Drive the core animation from voice activity. getState() avoids
+      // re-rendering this provider on every state change.
+      const { setCoreState } = useAppStore.getState()
+      setCoreState('working')
+      if (workingTimer.current) clearTimeout(workingTimer.current)
+      if (sleepTimer.current) clearTimeout(sleepTimer.current)
+      workingTimer.current = setTimeout(() => setCoreState('idle'), WORKING_TIMEOUT_MS)
+      sleepTimer.current = setTimeout(() => setCoreState('sleep'), SLEEP_TIMEOUT_MS)
     })
   }, [])
 

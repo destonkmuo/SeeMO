@@ -59,11 +59,13 @@ struct SimUniforms {
   dt: f32,
   time: f32,
   count: f32,
-  speaking: f32,
+  energy: f32,
   breathAmp: f32,
   turbulence: f32,
+  pulse: f32,
+  swirl: f32,
+  radius: f32,
   pad0: f32,
-  pad1: f32,
 };
 
 @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
@@ -90,21 +92,27 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     tangent = tangent / tl;
   }
 
-  // Base target radius (contained size)
+  // Base target radius (contained size), scaled per state so the core
+  // contracts in sleep and expands when speaking/working.
   let phase = p.seed * 6.2831853;
-  let targetR = (0.30 + 0.78 * p.seed) * (1.0 + sim.breathAmp * sin(t * 1.3 + phase));
+  let targetR = (0.30 + 0.78 * p.seed) * (1.0 + sim.breathAmp * sin(t * 1.3 + phase)) * sim.radius;
 
-  var force = tangent * (0.5 + 0.7 * p.seed);
+  var force = tangent * (0.5 + 0.7 * p.seed) * sim.swirl;
   force += dir * (targetR - r) * 2.8;
 
-  // Call vibrate(time, seed, frequency, intensity) when speaking
-  let vibration = vibrate(t, p.seed, 45.0, 1.8) * sim.speaking;
+  // Speech-like vibration while talking back, milder churn while working.
+  let vibration = vibrate(t, p.seed, 45.0, 1.8) * sim.energy;
 
   // Organic turbulence combined with vibration
   let n1 = vnoise(pos * 1.7 + t * 0.15);
   let n2 = vnoise(pos * 1.7 + vec3f(13.1, 4.3, 0.0) + t * 0.15);
   let n3 = vnoise(pos * 1.7 + vec3f(0.0, 7.7, 9.2) + t * 0.15);
   force += (vec3f(n1, n2, n3) - vec3f(0.5)) * sim.turbulence + vibration;
+
+  // Traveling ripple: sweeps outward while listening, throbs at speech
+  // cadence while talking, nearly still in sleep.
+  let pulseWave = sin(r * 9.0 - t * 3.2 + phase) * sim.pulse;
+  force += dir * pulseWave * 0.9;
 
   force.y += sin(t * 0.7 + phase) * 0.12;
 
@@ -132,11 +140,15 @@ struct RenderUniforms {
   viewProj: mat4x4f,
   resolution: vec2f,
   time: f32,
-  speaking: f32,
+  energy: f32,
   colorMix: f32,
   sizeScale: f32,
   brightness: f32,
+  pulse: f32,
+  warm: f32,
   pad0: f32,
+  pad1: f32,
+  pad2: f32,
 };
 
 @group(0) @binding(0) var<storage, read> particles: array<Particle>;
@@ -164,7 +176,7 @@ fn vs_particle(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u3
   let c = corners[vi];
 
   let baseSize = ren.sizeScale * (0.6 + 0.9 * p.seed);
-  let size = baseSize * (1.0 + speed * 0.9 + ren.speaking * 0.2);
+  let size = baseSize * (1.0 + speed * 0.9 + ren.energy * 0.25);
 
   var out: VSOut;
   out.pos = vec4f(clip.xy + c * size, clip.z, clip.w);
@@ -185,14 +197,20 @@ fn fs_particle(in: VSOut) -> @location(0) vec4f {
   let core = exp(-d * d * 7.0);
   let glow = exp(-d * d * 2.0) * 0.35;
 
-  let base = mix(vec3f(0.30, 0.38, 0.50), vec3f(0.16, 0.58, 1.0), ren.colorMix);
-  let hot = mix(vec3f(0.85, 0.88, 0.92), vec3f(0.80, 0.96, 1.0), ren.colorMix);
+  // Cool blue ramp (sleep -> idle -> speaking) with an amber override
+  // while working on an objective.
+  let cool = mix(vec3f(0.30, 0.38, 0.50), vec3f(0.16, 0.58, 1.0), ren.colorMix);
+  let base = mix(cool, vec3f(1.0, 0.55, 0.18), ren.warm * 0.85);
+  var hot = mix(vec3f(0.85, 0.88, 0.92), vec3f(0.80, 0.96, 1.0), ren.colorMix);
+  hot = mix(hot, vec3f(1.0, 0.90, 0.75), ren.warm * 0.7);
 
   let inner = clamp(1.0 - in.radial, 0.0, 1.0);
   let col = mix(base, hot, inner * inner * 0.5);
 
   let depthFade = 1.0 / (1.0 + max(in.depth - 3.0, 0.0) * 0.7);
-  let intensity = (core + glow) * in.energy * ren.brightness * depthFade;
+  // Soft global throb synced with the simulation ripple.
+  let throb = 1.0 + ren.pulse * 0.30 * sin(ren.time * 3.2 - in.radial * 6.0);
+  let intensity = (core + glow) * in.energy * ren.brightness * depthFade * throb;
 
   return vec4f(col * intensity, intensity);
 }
@@ -203,7 +221,7 @@ struct CompositeUniforms {
   resolution: vec2f,
   time: f32,
   colorMix: f32,
-  speaking: f32,
+  energy: f32,
   pad0: f32,
   pad1: f32,
   pad2: f32,
