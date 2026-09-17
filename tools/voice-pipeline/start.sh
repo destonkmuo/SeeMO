@@ -187,7 +187,10 @@ PYEOF
     }
 
     log "resolving prebuilt whisper.cpp binary for Windows"
-    mapfile -t ZIP_URLS < <(resolve_whisper_zip_urls)
+    # NOTE: Windows Python writes stdout with CRLF, so every captured URL
+    # would carry a trailing CR and curl rejects it with "error 3: URL
+    # rejected". Strip carriage returns before use.
+    mapfile -t ZIP_URLS < <(resolve_whisper_zip_urls | tr -d '\r')
     DOWNLOADED=""
     for url in "${ZIP_URLS[@]}"; do
       [ -n "$url" ] || continue
