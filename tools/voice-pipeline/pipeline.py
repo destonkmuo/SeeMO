@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -232,6 +233,13 @@ class EnergyGate:
 # --------------------------------------------------------------------------- #
 
 def main() -> None:
+    if shutil.which(WHISPER_CLI) is None and not os.path.exists(WHISPER_CLI):
+        sys.stderr.write(
+            f"[error] whisper binary '{WHISPER_CLI}' not found — "
+            "run tools/voice-pipeline/start.sh (or start.ps1 on Windows) to download it\n"
+        )
+        sys.exit(1)
+
     for path, name in ((WAKE_MODEL, "wake"), (TRANSCRIBE_MODEL, "transcribe")):
         if not os.path.exists(path):
             sys.stderr.write(

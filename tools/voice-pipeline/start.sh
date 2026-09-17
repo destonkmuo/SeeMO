@@ -291,6 +291,14 @@ log "installing python dependencies (numpy, sounddevice)"
 # --------------------------------------------------------------------------- #
 # 5. Launch
 # --------------------------------------------------------------------------- #
+if [ "$OS" = "windows" ]; then
+  # The venv python is a native Windows exe: it cannot resolve MSYS paths
+  # like /c/Users/... passed via env vars (only argv gets auto-converted),
+  # so export real Windows paths here.
+  command -v cygpath >/dev/null 2>&1 || err "cygpath not found — run this script from Git Bash (https://git-scm.com/downloads)"
+  WHISPER_CLI="$(cygpath -w "$WHISPER_CLI")"
+  MODEL_DIR="$(cygpath -w "$MODEL_DIR")"
+fi
 log "starting voice pipeline — say 'hey jarvis' then your command (Ctrl+C to stop)"
 exec env \
   WHISPER_CLI="$WHISPER_CLI" \
