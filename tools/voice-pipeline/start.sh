@@ -107,6 +107,18 @@ else
   fi
 fi
 
+# Shared downloader: curl preferred, python urllib fallback (curl isn't
+# guaranteed on Windows Git Bash).
+download_file() {
+  local url="$1" dest="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -L --fail -o "$dest" "$url"
+  else
+    "$PYTHON_BIN" -c "import urllib.request, sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" \
+      "$url" "$dest"
+  fi
+}
+
 # --------------------------------------------------------------------------- #
 # 2. Clone + build whisper.cpp (macOS/Linux) or download prebuilt (Windows)
 # --------------------------------------------------------------------------- #
@@ -127,18 +139,68 @@ if [ "$OS" = "windows" ]; then
   if [ -z "$WHISPER_CLI" ]; then
     # Prebuilt CPU binary from the whisper.cpp GitHub releases. Building from
     # source on Windows requires MSVC/CMake setup, so prefer this.
-    WHISPER_ZIP_URL="https://github.com/ggerganov/whisper.cpp/releases/latest/download/whisper-bin-x64.zip"
+    #
+    # NOTE: the `latest` release frequently ships zero binaries, and the repo
+    # moved from ggerganov/whisper.cpp to ggml-org/whisper.cpp, so resolve the
+    # real asset URL via the GitHub API instead of hardcoding
+    # `.../releases/latest/download/...`. Pinned fallbacks cover the case
+    # where the API is unreachable (rate limit / proxy).
     WHISPER_ZIP="$VENDOR_DIR/whisper-bin-x64.zip"
     mkdir -p "$VENDOR_DIR" "$WHISPER_BIN_DIR"
-    log "downloading prebuilt whisper.cpp for Windows"
-    if command -v curl >/dev/null 2>&1; then
-      curl -L --fail -o "$WHISPER_ZIP" "$WHISPER_ZIP_URL" \
-        || err "failed to download whisper-bin-x64.zip from $WHISPER_ZIP_URL"
-    else
-      "$PYTHON_BIN" -c "import urllib.request, sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" \
-        "$WHISPER_ZIP_URL" "$WHISPER_ZIP" \
-        || err "failed to download whisper-bin-x64.zip from $WHISPER_ZIP_URL"
-    fi
+
+    resolve_whisper_zip_urls() {
+      "$PYTHON_BIN" - <<'PYEOF'
+import json
+import sys
+import urllib.request
+
+API = "https://api.github.com/repos/ggml-org/whisper.cpp/releases?per_page=20"
+FALLBACKS = [
+    "https://github.com/ggml-org/whisper.cpp/releases/download/b5130/whisper-bin-x64.zip",
+    "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-x64.zip",
+]
+
+found = None
+try:
+    req = urllib.request.Request(
+        API,
+        headers={"User-Agent": "SeeMO-setup", "Accept": "application/vnd.github+json"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        releases = json.load(resp)
+    for rel in releases:
+        for asset in rel.get("assets", []):
+            if asset.get("name") == "whisper-bin-x64.zip" and asset.get("browser_download_url"):
+                found = asset["browser_download_url"]
+                break
+        if found:
+            break
+except Exception as exc:  # API unreachable / rate-limited — fallbacks cover it
+    sys.stderr.write(f"[setup] github api lookup failed ({exc}), using pinned fallbacks\n")
+
+if found:
+    print(found)
+for url in FALLBACKS:
+    if url != found:
+        print(url)
+PYEOF
+    }
+
+    log "resolving prebuilt whisper.cpp binary for Windows"
+    mapfile -t ZIP_URLS < <(resolve_whisper_zip_urls)
+    DOWNLOADED=""
+    for url in "${ZIP_URLS[@]}"; do
+      [ -n "$url" ] || continue
+      log "trying $url"
+      if download_file "$url" "$WHISPER_ZIP"; then
+        DOWNLOADED=1
+        break
+      else
+        warn "download failed: $url"
+        rm -f "$WHISPER_ZIP"
+      fi
+    done
+    [ -n "$DOWNLOADED" ] || err "could not download a prebuilt whisper.cpp binary — check your network, or manually place whisper-cli.exe in $WHISPER_BIN_DIR (see https://github.com/ggml-org/whisper.cpp/releases)"
     log "extracting whisper-bin-x64.zip"
     "$PYTHON_BIN" -c "import zipfile, sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
       "$WHISPER_ZIP" "$WHISPER_BIN_DIR" \
@@ -185,16 +247,6 @@ log "whisper-cli: $WHISPER_CLI"
 # 3. Download whisper models (curl preferred, python urllib fallback for Win)
 # --------------------------------------------------------------------------- #
 mkdir -p "$MODEL_DIR"
-
-download_file() {
-  local url="$1" dest="$2"
-  if command -v curl >/dev/null 2>&1; then
-    curl -L --fail -o "$dest" "$url"
-  else
-    "$PYTHON_BIN" -c "import urllib.request, sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" \
-      "$url" "$dest"
-  fi
-}
 
 download_model() {
   local name="$1" size="$2"
