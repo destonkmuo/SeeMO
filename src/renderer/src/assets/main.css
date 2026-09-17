@@ -848,6 +848,32 @@ body {
   text-decoration: underline;
 }
 
+.markdown__wiki {
+  padding: 0 2px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(106, 176, 255, 0.12);
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.markdown__wiki:hover {
+  background: rgba(106, 176, 255, 0.22);
+  text-decoration: underline;
+}
+
+.markdown__wiki--missing {
+  background: transparent;
+  color: var(--ev-c-text-3);
+  border-bottom: 1px dashed var(--ev-c-text-3);
+}
+
+.markdown__wiki--missing:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ev-c-text-1);
+}
+
 .markdown img {
   max-width: 100%;
   border-radius: 8px;
@@ -881,6 +907,64 @@ body {
   max-width: 860px;
   margin: 0 auto;
   padding: 56px 48px;
+}
+
+.graph {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.graph__header {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex: none;
+  padding: 40px 48px 12px;
+}
+
+.graph__title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ev-c-text-1);
+}
+
+.graph__stats {
+  font-size: 12.5px;
+  color: var(--ev-c-text-3);
+}
+
+.graph__wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 0 24px 24px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.015);
+  overflow: hidden;
+}
+
+.graph__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.graph__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ev-c-text-3);
+  pointer-events: none;
 }
 
 .home__header {

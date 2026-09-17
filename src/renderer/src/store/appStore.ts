@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { noteFileBase, orderedNotes, titleFromFileName, uniqueFileName } from '../notes'
 
-export type NavKey = 'home' | 'todo' | 'calendar' | 'agent' | 'activity' | 'misc' | 'settings'
+export type NavKey =
+  'home' | 'graph' | 'todo' | 'calendar' | 'agent' | 'activity' | 'misc' | 'settings'
 
 /** Visual/behavioral state of the core orb. */
 export type CoreState = 'sleep' | 'idle' | 'working' | 'speaking'
@@ -61,7 +62,7 @@ interface AppState {
   closeTab: (id: string) => void
   moveTab: (dragId: string, targetId: string | null, before: boolean) => void
   moveNote: (dragId: string, targetId: string | null, before: boolean) => void
-  createNote: () => string
+  createNote: (title?: string) => string
   updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'content'>>) => void
   deleteNote: (id: string) => void
   initVault: (force?: boolean) => Promise<void>
@@ -181,8 +182,8 @@ export const useAppStore = create<AppState>()(
           if (!before) to += 1
           return { noteOrder: [...without.slice(0, to), dragId, ...without.slice(to)] }
         }),
-      createNote: () => {
-        const note = blankNote()
+      createNote: (title?: string) => {
+        const note = { ...blankNote(), title: (title ?? '').trim() }
         const tab = noteTab(note.id)
         set((state) => {
           const taken = new Set(state.notes.map((n) => n.fileName))

@@ -4,6 +4,7 @@ import AgentBubble from './components/AgentBubble'
 import Sidebar from './components/Sidebar'
 import TabBar from './components/TabBar'
 import Agent from './pages/Agent'
+import Graph from './pages/Graph'
 import Home from './pages/Home'
 import Note from './pages/Note'
 import Section from './pages/Section'
@@ -16,6 +17,7 @@ const AUTO_SYNC_INTERVAL_MS = 30000
 function Content({ active }: { active: NavKey }): React.JSX.Element {
   if (active === 'agent') return <Agent />
   if (active === 'home') return <Home />
+  if (active === 'graph') return <Graph />
   if (active === 'settings') return <Settings />
   return <Section section={active} />
 }

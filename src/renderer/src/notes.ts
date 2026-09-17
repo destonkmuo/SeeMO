@@ -40,6 +40,48 @@ export function titleFromFileName(fileName: string): string {
   return pretty || 'Untitled'
 }
 
+export interface WikiLink {
+  /** Raw target as written, e.g. `My Note` in `[[My Note|alias]]`. */
+  target: string
+  /** Display text: the alias, or the target when there is none. */
+  alias: string
+}
+
+const WIKI_RE = /\[\[([^\]\n]+?)\]\]/g
+
+/**
+ * Extract `[[Note]]` and `[[Note|alias]]` links from markdown source.
+ * Code spans are skipped so `` `[[not-a-link]]` `` stays literal.
+ */
+export function parseWikiLinks(source: string): WikiLink[] {
+  const withoutCode = source.replace(/`[^`\n]+`/g, (span) => ' '.repeat(span.length))
+  const links: WikiLink[] = []
+  WIKI_RE.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = WIKI_RE.exec(withoutCode)) !== null) {
+    const inner = match[1]
+    const pipe = inner.indexOf('|')
+    const target = (pipe < 0 ? inner : inner.slice(0, pipe)).trim()
+    if (!target) continue
+    const alias = (pipe < 0 ? inner : inner.slice(pipe + 1)).trim() || target
+    links.push({ target, alias })
+  }
+  return links
+}
+
+/** Minimal note shape needed for link resolution (avoids a store import). */
+export interface LinkableNote {
+  id: string
+  title: string
+}
+
+/** Find the note a wiki-link points at, matching titles case-insensitively. */
+export function resolveWikiTarget(target: string, notes: LinkableNote[]): string | null {
+  const needle = target.trim().toLowerCase()
+  if (!needle) return null
+  return notes.find((note) => note.title.trim().toLowerCase() === needle)?.id ?? null
+}
+
 /**
  * Order notes for the sidebar: the persisted manual order first, then any
  * notes not yet positioned (new or freshly imported), most-recently-edited

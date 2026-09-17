@@ -3,6 +3,7 @@ import {
   ActivityIcon,
   AgentIcon,
   CalendarIcon,
+  GraphIcon,
   HomeIcon,
   ListTodoIcon,
   MoreIcon,
@@ -18,6 +19,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { key: 'home', label: 'Home', icon: HomeIcon },
+  { key: 'graph', label: 'Graph', icon: GraphIcon },
   { key: 'todo', label: 'Todo', icon: ListTodoIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'agent', label: 'AI Agent', icon: AgentIcon },

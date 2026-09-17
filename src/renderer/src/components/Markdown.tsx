@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 import { BULLET, FENCE, HEADING, ORDERED, QUOTE, RULE, TASK, splitBlocks } from '../markdown'
+import { resolveWikiTarget } from '../notes'
+import { useAppStore } from '../store/appStore'
 
 /**
  * Minimal markdown renderer for notes.
@@ -11,15 +13,37 @@ import { BULLET, FENCE, HEADING, ORDERED, QUOTE, RULE, TASK, splitBlocks } from 
  */
 
 // A single pass over inline tokens. Code spans come first so their contents
-// are never re-parsed for emphasis.
+// are never re-parsed for emphasis. Wiki-links come before md-links so that
+// `[[a]]` is never misread (it can't match the md-link shape anyway, which
+// requires `](`, but explicit ordering keeps it obvious).
 const INLINE_RE =
-  /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~\n]+~~)|(!?\[[^\]\n]*\]\([^)\n]*\))/g
+  /(`[^`\n]+`)|(\[\[[^\]\n]+\]\])|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~\n]+~~)|(!?\[[^\]\n]*\]\([^)\n]*\))/g
 
 const SAFE_URL = /^(https?:\/\/|mailto:|#|\/)/i
 
 function safeUrl(url: string): string | undefined {
   const trimmed = url.trim()
   return SAFE_URL.test(trimmed) ? trimmed : undefined
+}
+
+/** A `[[Note]]` / `[[Note|alias]]` link: opens the note, or creates it. */
+function WikiLink({ target, alias }: { target: string; alias: string }): React.JSX.Element {
+  const notes = useAppStore((state) => state.notes)
+  const resolved = resolveWikiTarget(target, notes)
+  return (
+    <button
+      type="button"
+      className={`markdown__wiki${resolved ? '' : ' markdown__wiki--missing'}`}
+      title={resolved ? `Open ${target}` : `Create ${target}`}
+      onClick={() => {
+        const { notes: live, openNote, createNote } = useAppStore.getState()
+        const id = resolveWikiTarget(target, live)
+        openNote(id ?? createNote(target))
+      }}
+    >
+      {alias}
+    </button>
+  )
 }
 
 function renderInline(text: string, prefix: string): ReactNode[] {
@@ -39,6 +63,16 @@ function renderInline(text: string, prefix: string): ReactNode[] {
 
     if (token.startsWith('`')) {
       nodes.push(<code key={key}>{token.slice(1, -1)}</code>)
+    } else if (token.startsWith('[[')) {
+      const inner = token.slice(2, -2)
+      const pipe = inner.indexOf('|')
+      const target = (pipe < 0 ? inner : inner.slice(0, pipe)).trim()
+      const alias = (pipe < 0 ? inner : inner.slice(pipe + 1)).trim() || target
+      if (target) {
+        nodes.push(<WikiLink key={key} target={target} alias={alias} />)
+      } else {
+        nodes.push(token)
+      }
     } else if (token.startsWith('**') || token.startsWith('__')) {
       nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>)
     } else if (token.startsWith('~~')) {
