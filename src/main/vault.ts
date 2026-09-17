@@ -65,6 +65,16 @@ function ensureMarkdown(name: string): string {
   return clean.toLowerCase().endsWith('.md') ? clean : `${clean}.md`
 }
 
+/** JSON data files allowed to live alongside notes in the vault. */
+const DATA_FILES = ['calendar.json', 'todo.json'] as const
+
+function resolveDataFile(root: string, name: string): string {
+  if (!DATA_FILES.includes(name as (typeof DATA_FILES)[number])) {
+    throw new Error(`not a planner data file: ${name}`)
+  }
+  return resolveVaultFile(root, name)
+}
+
 async function listVaultFiles(root: string): Promise<VaultFileInfo[]> {
   const entries = await fs.readdir(root, { withFileTypes: true })
   const files: VaultFileInfo[] = []
@@ -148,5 +158,25 @@ export function registerVaultHandlers(): void {
     } catch (error) {
       if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error
     }
+  })
+
+  ipcMain.handle('vault:readJson', async (_event, name: unknown) => {
+    if (typeof name !== 'string') throw new Error('data file name must be a string')
+    const root = await getVaultRoot()
+    const full = resolveDataFile(root, name)
+    try {
+      return JSON.parse(await fs.readFile(full, 'utf8')) as unknown
+    } catch (error) {
+      // Missing file = empty dataset; corrupt file surfaces to the caller.
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return []
+      throw error
+    }
+  })
+
+  ipcMain.handle('vault:writeJson', async (_event, name: unknown, data: unknown) => {
+    if (typeof name !== 'string') throw new Error('data file name must be a string')
+    if (!Array.isArray(data)) throw new Error('planner data must be an array')
+    const root = await getVaultRoot()
+    await fs.writeFile(resolveDataFile(root, name), `${JSON.stringify(data, null, 2)}\n`, 'utf8')
   })
 }

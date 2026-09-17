@@ -171,6 +171,22 @@ export function ChevronDownIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function ChevronLeftIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <path d="m15 18-6-6 6-6" />
+    </IconBase>
+  )
+}
+
+export function ChevronRightIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <path d="m9 18 6-6-6-6" />
+    </IconBase>
+  )
+}
+
 export function GraphIcon(props: IconProps): React.JSX.Element {
   return (
     <IconBase {...props}>

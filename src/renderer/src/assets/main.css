@@ -1,6 +1,7 @@
 @import './base.css';
 
 :root {
+  color-scheme: dark;
   --sidebar-bg: #1b1b1b;
   --main-bg: #202020;
   --line: rgba(255, 255, 255, 0.08);
@@ -1887,6 +1888,769 @@ body {
   to {
     background-position: 0% 0;
   }
+}
+
+.btn--danger {
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--danger);
+}
+
+.btn--danger:hover {
+  background: rgba(255, 107, 107, 0.22);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---------------------------------------------------------------- calendar */
+
+.cal {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 20px 24px;
+  overflow: hidden;
+}
+
+.cal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex: none;
+  margin-bottom: 14px;
+}
+
+.cal__title {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ev-c-text-1);
+  white-space: nowrap;
+}
+
+.cal__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cal__nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.cal__navbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ev-c-text-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cal__navbtn:hover {
+  background: var(--hover-strong);
+  color: var(--ev-c-text-1);
+}
+
+.cal__seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.cal__seg-btn {
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ev-c-text-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.cal__seg-btn:hover {
+  color: var(--ev-c-text-1);
+}
+
+.cal__seg-btn.is-active {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--ev-c-text-1);
+}
+
+.cal__error {
+  flex: none;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255, 107, 107, 0.1);
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.cal__empty {
+  color: var(--ev-c-text-3);
+  font-size: 13.5px;
+  padding: 24px 4px;
+}
+
+/* Month grid */
+
+.cal-month {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-template-rows: auto repeat(6, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.cal-dow {
+  background: var(--main-bg);
+  color: var(--ev-c-text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 8px 0;
+}
+
+.cal-cell {
+  background: var(--main-bg);
+  min-height: 0;
+  min-width: 0;
+  padding: 5px 6px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.cal-cell:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.cal-cell.is-dim {
+  opacity: 0.42;
+}
+
+.cal-cell__date {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ev-c-text-1);
+}
+
+.cal-cell.is-today .cal-cell__date {
+  background: var(--accent);
+  color: #101418;
+}
+
+.cal-cell__entries {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 3px;
+}
+
+.cal-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  border: none;
+  border-radius: 5px;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+  color: #101418;
+}
+
+.cal-chip--event {
+  background: rgba(106, 176, 255, 0.85);
+}
+
+.cal-chip--activity {
+  background: rgba(178, 132, 255, 0.85);
+}
+
+.cal-chip--todo {
+  background: rgba(255, 190, 90, 0.85);
+}
+
+.cal-chip:hover {
+  filter: brightness(1.12);
+}
+
+.cal-chip.is-done {
+  opacity: 0.55;
+}
+
+.cal-chip.is-done .cal-chip__title {
+  text-decoration: line-through;
+}
+
+.cal-chip__time {
+  flex: none;
+  font-weight: 700;
+  font-size: 10.5px;
+  opacity: 0.8;
+}
+
+.cal-chip__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-more {
+  border: none;
+  background: transparent;
+  color: var(--ev-c-text-3);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+
+.cal-more:hover {
+  color: var(--ev-c-text-1);
+}
+
+/* Week / day time grid */
+
+.cal-week {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.cal-week__head {
+  display: flex;
+  flex: none;
+  border-bottom: 1px solid var(--line);
+}
+
+.cal-week__gutter {
+  flex: none;
+  width: 56px;
+  font-size: 10.5px;
+  color: var(--ev-c-text-3);
+  padding: 10px 6px 0 0;
+  text-align: right;
+}
+
+.cal-week__day {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 0;
+  border: none;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  color: var(--ev-c-text-1);
+  font: inherit;
+  cursor: pointer;
+}
+
+button.cal-week__day:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.cal-week__dow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ev-c-text-3);
+}
+
+.cal-week__date {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cal-week__day.is-today .cal-week__date {
+  background: var(--accent);
+  color: #101418;
+}
+
+.cal-week__allday {
+  display: flex;
+  flex: none;
+  border-bottom: 1px solid var(--line);
+  max-height: 76px;
+  overflow-y: auto;
+}
+
+.cal-week__allday-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border-left: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.cal-week__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.cal-grid {
+  display: flex;
+  position: relative;
+}
+
+.cal-grid__gutter {
+  flex: none;
+  width: 56px;
+}
+
+.cal-hour {
+  position: relative;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.cal-hour span {
+  position: absolute;
+  top: -8px;
+  right: 6px;
+  font-size: 10px;
+  color: var(--ev-c-text-3);
+}
+
+.cal-col {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  border-left: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.cal-col__hour {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.cal-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #ff5f56;
+  pointer-events: none;
+}
+
+.cal-now::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff5f56;
+}
+
+.cal-block {
+  position: absolute;
+  overflow: hidden;
+  border: none;
+  border-radius: 6px;
+  padding: 3px 6px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: #101418;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.cal-block--event {
+  background: rgba(106, 176, 255, 0.88);
+}
+
+.cal-block--activity {
+  background: rgba(178, 132, 255, 0.88);
+}
+
+.cal-block--todo {
+  background: rgba(255, 190, 90, 0.88);
+}
+
+.cal-block:hover {
+  filter: brightness(1.1);
+}
+
+.cal-block.is-done {
+  opacity: 0.55;
+}
+
+.cal-block.is-done .cal-block__title {
+  text-decoration: line-through;
+}
+
+.cal-block__title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.cal-block__meta {
+  font-size: 10.5px;
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------------------- todo */
+
+.todo {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.todo__inner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 40px 48px 80px;
+}
+
+.todo__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.todo__title {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ev-c-text-1);
+}
+
+.todo__subtitle {
+  margin-top: 6px;
+  font-size: 14px;
+  color: var(--ev-c-text-2);
+}
+
+.todo-group {
+  margin-top: 28px;
+}
+
+.todo-group__title {
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ev-c-text-3);
+}
+
+.todo-group--overdue .todo-group__title {
+  color: var(--danger);
+}
+
+.todo-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 9px;
+}
+
+.todo-row:hover {
+  background: var(--hover);
+}
+
+.todo-check {
+  flex: none;
+  border: none;
+  background: transparent;
+  padding: 3px;
+  cursor: pointer;
+}
+
+.todo-check__box {
+  display: block;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ev-c-text-3);
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.todo-check:hover .todo-check__box {
+  border-color: var(--ev-c-text-1);
+}
+
+.todo-row.is-done .todo-check__box {
+  background: var(--accent);
+  border-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23101418' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+  background-size: 11px;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.todo-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.todo-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ev-c-text-1);
+}
+
+.todo-row.is-done .todo-title {
+  color: var(--ev-c-text-3);
+  text-decoration: line-through;
+}
+
+.todo-meta {
+  font-size: 12px;
+  color: var(--ev-c-text-3);
+}
+
+.todo-desc {
+  font-size: 12.5px;
+  color: var(--ev-c-text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ dialog */
+
+.dlg-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8vh 16px 16px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow-y: auto;
+}
+
+.dlg {
+  width: 100%;
+  max-width: 480px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #262626;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  padding: 18px 20px;
+  animation: dlg-in 0.16s ease;
+}
+
+@keyframes dlg-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+}
+
+.dlg__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.dlg__title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ev-c-text-1);
+}
+
+.dlg__x {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ev-c-text-2);
+  cursor: pointer;
+}
+
+.dlg__x:hover {
+  background: var(--hover-strong);
+  color: var(--ev-c-text-1);
+}
+
+.dlg__seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  margin-bottom: 12px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dlg__seg-btn {
+  flex: 1;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ev-c-text-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.dlg__seg-btn:hover {
+  color: var(--ev-c-text-1);
+}
+
+.dlg__seg-btn.is-active {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--ev-c-text-1);
+}
+
+.dlg__field {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.dlg__label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ev-c-text-3);
+}
+
+.dlg__input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ev-c-text-1);
+  font: inherit;
+  font-size: 13.5px;
+  outline: none;
+  user-select: text;
+}
+
+.dlg__input:focus {
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.dlg__input:disabled {
+  opacity: 0.4;
+}
+
+.dlg__textarea {
+  resize: vertical;
+  min-height: 64px;
+  line-height: 1.5;
+}
+
+.dlg__row {
+  display: flex;
+  gap: 10px;
+}
+
+.dlg__row .dlg__field {
+  flex: 1;
+  min-width: 0;
+}
+
+.dlg__row--checks {
+  align-items: center;
+  gap: 16px;
+  margin: 2px 0 10px;
+}
+
+.dlg__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.dlg__spacer {
+  flex: 1;
 }
 
 /* ------------------------------------------------- reduced motion */

@@ -14,7 +14,9 @@ const vault: VaultApi = {
   write: (name: string, content: string) => ipcRenderer.invoke('vault:write', name, content),
   rename: (oldName: string, newName: string) =>
     ipcRenderer.invoke('vault:rename', oldName, newName),
-  remove: (name: string) => ipcRenderer.invoke('vault:remove', name)
+  remove: (name: string) => ipcRenderer.invoke('vault:remove', name),
+  readJson: (name: string) => ipcRenderer.invoke('vault:readJson', name),
+  writeJson: (name: string, data: unknown[]) => ipcRenderer.invoke('vault:writeJson', name, data)
 }
 
 const api = {

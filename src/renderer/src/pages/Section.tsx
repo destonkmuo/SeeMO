@@ -1,11 +1,9 @@
 import type { NavKey } from '../store/appStore'
 
 const SECTIONS: Record<
-  Exclude<NavKey, 'home' | 'graph' | 'agent' | 'settings'>,
+  Exclude<NavKey, 'home' | 'graph' | 'agent' | 'settings' | 'todo' | 'calendar'>,
   { title: string; body: string }
 > = {
-  todo: { title: 'Todo', body: 'Tasks will live here.' },
-  calendar: { title: 'Calendar', body: 'Your schedule will live here.' },
   activity: { title: 'AI Activity', body: 'A log of what the agent has been doing.' },
   misc: { title: 'Misc', body: 'Everything else.' }
 }
@@ -13,7 +11,7 @@ const SECTIONS: Record<
 function Section({
   section
 }: {
-  section: Exclude<NavKey, 'home' | 'graph' | 'agent' | 'settings'>
+  section: Exclude<NavKey, 'home' | 'graph' | 'agent' | 'settings' | 'todo' | 'calendar'>
 }): React.JSX.Element {
   const { title, body } = SECTIONS[section]
   return (

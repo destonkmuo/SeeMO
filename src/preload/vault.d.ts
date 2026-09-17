@@ -20,4 +20,6 @@ export interface VaultApi {
   write(name: string, content: string): Promise<{ name: string }>
   rename(oldName: string, newName: string): Promise<{ name: string }>
   remove(name: string): Promise<void>
+  readJson(name: string): Promise<unknown>
+  writeJson(name: string, data: unknown[]): Promise<void>
 }

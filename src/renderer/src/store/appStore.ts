@@ -1,6 +1,16 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { noteFileBase, orderedNotes, titleFromFileName, uniqueFileName } from '../notes'
+import {
+  CALENDAR_FILE,
+  TODO_FILE,
+  parseCalendarItems,
+  parseTodoItems,
+  type CalendarDraft,
+  type CalendarItem,
+  type TodoDraft,
+  type TodoItem
+} from '../planner'
 
 export type NavKey =
   'home' | 'graph' | 'todo' | 'calendar' | 'agent' | 'activity' | 'misc' | 'settings'
@@ -101,6 +111,18 @@ interface AppState {
   addChatMessage: (role: ChatMessage['role'], text: string) => string
   updateChatMessage: (id: string, text: string) => void
   clearChat: () => void
+  calendarItems: CalendarItem[]
+  todos: TodoItem[]
+  plannerReady: boolean
+  plannerError: string | null
+  loadPlanner: () => Promise<void>
+  addCalendarItem: (draft: CalendarDraft) => void
+  updateCalendarItem: (id: string, patch: Partial<CalendarDraft>) => void
+  deleteCalendarItem: (id: string) => void
+  addTodo: (draft: TodoDraft) => void
+  updateTodo: (id: string, patch: Partial<TodoDraft & { done: boolean }>) => void
+  toggleTodo: (id: string) => void
+  deleteTodo: (id: string) => void
 }
 
 function uid(): string {
@@ -139,6 +161,10 @@ export const useAppStore = create<AppState>()(
       vaultReady: false,
       vaultError: null,
       messages: [],
+      calendarItems: [],
+      todos: [],
+      plannerReady: false,
+      plannerError: null,
       autoSync: false,
       backgroundListening: false,
       lastSeenAgentId: null,
@@ -375,6 +401,8 @@ export const useAppStore = create<AppState>()(
               }
             }
             set({ vaultReady: true })
+            // Vault is up — pull planner JSON next (missing files load empty).
+            void get().loadPlanner()
           } catch (error) {
             console.error('[vault] initialization failed', error)
             set({ vaultError: 'Could not open the notes vault.', vaultReady: false })
@@ -436,7 +464,84 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           messages: state.messages.map((m) => (m.id === id ? { ...m, text } : m))
         })),
-      clearChat: () => set({ messages: [] })
+      clearChat: () => set({ messages: [] }),
+      loadPlanner: async () => {
+        try {
+          const [calendarRaw, todoRaw] = await Promise.all([
+            window.api.vault.readJson(CALENDAR_FILE),
+            window.api.vault.readJson(TODO_FILE)
+          ])
+          set({
+            calendarItems: parseCalendarItems(calendarRaw),
+            todos: parseTodoItems(todoRaw),
+            plannerReady: true,
+            plannerError: null
+          })
+        } catch (error) {
+          console.error('[planner] failed to load planner data', error)
+          set({ plannerError: 'Could not load calendar/todo data.', plannerReady: true })
+        }
+      },
+      addCalendarItem: (draft) => {
+        const now = Date.now()
+        const item: CalendarItem = { ...draft, id: uid(), createdAt: now, updatedAt: now }
+        const items = [...get().calendarItems, item]
+        set({ calendarItems: items, plannerError: null })
+        void window.api.vault.writeJson(CALENDAR_FILE, items).catch((error) => {
+          console.error('[planner] failed to save calendar.json', error)
+          set({ plannerError: 'Could not save calendar.json.' })
+        })
+      },
+      updateCalendarItem: (id, patch) => {
+        const items = get().calendarItems.map((item) =>
+          item.id === id ? { ...item, ...patch, updatedAt: Date.now() } : item
+        )
+        set({ calendarItems: items, plannerError: null })
+        void window.api.vault.writeJson(CALENDAR_FILE, items).catch((error) => {
+          console.error('[planner] failed to save calendar.json', error)
+          set({ plannerError: 'Could not save calendar.json.' })
+        })
+      },
+      deleteCalendarItem: (id) => {
+        const items = get().calendarItems.filter((item) => item.id !== id)
+        set({ calendarItems: items, plannerError: null })
+        void window.api.vault.writeJson(CALENDAR_FILE, items).catch((error) => {
+          console.error('[planner] failed to save calendar.json', error)
+          set({ plannerError: 'Could not save calendar.json.' })
+        })
+      },
+      addTodo: (draft) => {
+        const now = Date.now()
+        const item: TodoItem = { ...draft, id: uid(), done: false, createdAt: now, updatedAt: now }
+        const todos = [item, ...get().todos]
+        set({ todos, plannerError: null })
+        void window.api.vault.writeJson(TODO_FILE, todos).catch((error) => {
+          console.error('[planner] failed to save todo.json', error)
+          set({ plannerError: 'Could not save todo.json.' })
+        })
+      },
+      updateTodo: (id, patch) => {
+        const todos = get().todos.map((item) =>
+          item.id === id ? { ...item, ...patch, updatedAt: Date.now() } : item
+        )
+        set({ todos, plannerError: null })
+        void window.api.vault.writeJson(TODO_FILE, todos).catch((error) => {
+          console.error('[planner] failed to save todo.json', error)
+          set({ plannerError: 'Could not save todo.json.' })
+        })
+      },
+      toggleTodo: (id) => {
+        const current = get().todos.find((item) => item.id === id)
+        if (current) get().updateTodo(id, { done: !current.done })
+      },
+      deleteTodo: (id) => {
+        const todos = get().todos.filter((item) => item.id !== id)
+        set({ todos, plannerError: null })
+        void window.api.vault.writeJson(TODO_FILE, todos).catch((error) => {
+          console.error('[planner] failed to save todo.json', error)
+          set({ plannerError: 'Could not save todo.json.' })
+        })
+      }
     }),
     {
       name: 'seemo-store',
