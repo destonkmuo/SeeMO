@@ -1,15 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { NAV_BY_KEY, NAV_LABELS } from '../nav'
 import { TAB_GROUP_COLORS, useAppStore, type Tab } from '../store/appStore'
-import {
-  FileTextIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  ClearAllIcon,
-  PlusIcon,
-  SplitIcon,
-  XIcon
-} from './icons'
+import { FileTextIcon, ChevronLeftIcon, ChevronRightIcon, SplitIcon, XIcon } from './icons'
 
 interface DropHint {
   id: string
@@ -44,8 +36,6 @@ function TabBar(): React.JSX.Element {
   const closeTab = useAppStore((state) => state.closeTab)
   const moveTab = useAppStore((state) => state.moveTab)
   const setSplitTab = useAppStore((state) => state.setSplitTab)
-  const closeAllTabs = useAppStore((state) => state.closeAllTabs)
-  const createNote = useAppStore((state) => state.createNote)
   const createTabGroup = useAppStore((state) => state.createTabGroup)
   const renameTabGroup = useAppStore((state) => state.renameTabGroup)
   const setTabGroupColor = useAppStore((state) => state.setTabGroupColor)
@@ -289,25 +279,6 @@ function TabBar(): React.JSX.Element {
           )
         })}
       </div>
-      <button
-        type="button"
-        className="tabbar__new"
-        title="New note"
-        aria-label="New note"
-        onClick={() => createNote()}
-      >
-        <PlusIcon size={15} />
-      </button>
-      <button
-        type="button"
-        className="tabbar__new"
-        title="Clear all tabs"
-        aria-label="Clear all tabs"
-        disabled={tabs.length === 0}
-        onClick={() => closeAllTabs()}
-      >
-        <ClearAllIcon size={15} />
-      </button>
 
       {menu && (
         <div

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { joinBlocks, splitBlocks } from '../markdown'
 import Markdown from './Markdown'
+import type { ImageControls } from '../images'
 
 interface BlockEditorProps {
   /** Raw markdown for the whole note. */
   value: string
   onChange: (value: string) => void
   placeholder?: string
+  images?: ImageControls
 }
 
 /**
@@ -18,7 +20,12 @@ interface BlockEditorProps {
  * a block, Tab indents (never leaves the editor), Backspace at the start
  * merges into the previous one, Escape leaves edit mode.
  */
-function BlockEditor({ value, onChange, placeholder }: BlockEditorProps): React.JSX.Element {
+function BlockEditor({
+  value,
+  onChange,
+  placeholder,
+  images
+}: BlockEditorProps): React.JSX.Element {
   const [blocks, setBlocks] = useState<string[]>(() => splitBlocks(value))
   const [active, setActive] = useState<number | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -185,7 +192,7 @@ function BlockEditor({ value, onChange, placeholder }: BlockEditorProps): React.
             onClick={() => activate(index)}
           >
             {block.trim() ? (
-              <Markdown source={block} />
+              <Markdown source={block} images={images} />
             ) : (
               <span className="block__placeholder">
                 {index === 0 ? placeholder : 'Empty block'}

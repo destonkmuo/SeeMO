@@ -5,6 +5,7 @@ import { registerAlarmHandlers, registerAlarmScheme } from './alarm'
 import { registerCalendarHandlers } from './calendar'
 import { startVoice, stopVoice, speakResponse } from './voice'
 import { registerGithubHandlers } from './github'
+import { registerMediaHandlers, registerMediaScheme } from './media'
 import { registerVaultHandlers } from './vault'
 import icon from '../../resources/icon.png?asset'
 
@@ -14,6 +15,7 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
 // Must be declared before the app is ready so the scheme is privileged.
 registerAlarmScheme()
+registerMediaScheme()
 
 function createWindow(): void {
   // Create the browser window.
@@ -86,6 +88,9 @@ app.whenReady().then(() => {
 
   // Custom alarm sounds: import picker + seemo-alarm:// streaming.
   registerAlarmHandlers()
+
+  // Note pictures: import picker + seemo-media:// streaming.
+  registerMediaHandlers()
 
   // Calendar subscriptions: fetch external ICS feeds for the renderer.
   registerCalendarHandlers()

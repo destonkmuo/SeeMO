@@ -188,6 +188,25 @@ export function GraphIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function ImageIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="9" cy="10" r="1.6" />
+      <path d="m4.5 18 5-5 3.5 3.5 2.5-2.5 4 4" />
+    </IconBase>
+  )
+}
+
+export function CommandIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <path d="m5 7 5 5-5 5" />
+      <path d="M13 17h6" />
+    </IconBase>
+  )
+}
+
 export function MailIcon(props: IconProps): React.JSX.Element {
   return (
     <IconBase {...props}>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NAV_ITEMS } from '../nav'
 import { buildNoteGraph, orderedNotes } from '../notes'
+import { importDroppedPicture } from '../images'
 import { LOCAL_CALENDAR_ID, expandItemDates, todayISO, type CalendarItem } from '../planner'
 import {
   SIDEBAR_DEFAULT_WIDTH,
@@ -13,11 +14,11 @@ import {
   CalendarIcon,
   ChevronDownIcon,
   FileTextIcon,
+  GraphIcon,
   MoreIcon,
   PlusIcon,
   RestoreIcon,
   SearchIcon,
-  SectionIcon,
   SettingsIcon,
   StarIcon,
   TrashIcon
@@ -171,6 +172,7 @@ function Sidebar(): React.JSX.Element {
   const toggleFavorite = useAppStore((state) => state.toggleFavorite)
   const restoreNote = useAppStore((state) => state.restoreNote)
   const destroyNote = useAppStore((state) => state.destroyNote)
+  const emptyTrash = useAppStore((state) => state.emptyTrash)
   const favorites = useAppStore((state) => state.favorites)
   const setQuery = useAppStore((state) => state.setQuery)
   const createNote = useAppStore((state) => state.createNote)
@@ -197,14 +199,18 @@ function Sidebar(): React.JSX.Element {
     null
   )
   const [noteOverSection, setNoteOverSection] = useState<string | null>(null)
+  const [dropNoteId, setDropNoteId] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ noteId: string; x: number; y: number } | null>(null)
+  const [spaceMenu, setSpaceMenu] = useState<{ x: number; y: number } | null>(null)
+
+  const clampMenu = (x: number, y: number): { x: number; y: number } => ({
+    x: Math.max(8, Math.min(x, window.innerWidth - 190)),
+    y: Math.max(8, Math.min(y, window.innerHeight - 300))
+  })
 
   const openMenuAt = (noteId: string, x: number, y: number): void => {
-    setMenu({
-      noteId,
-      x: Math.max(8, Math.min(x, window.innerWidth - 190)),
-      y: Math.max(8, Math.min(y, window.innerHeight - 260))
-    })
+    const at = clampMenu(x, y)
+    setMenu({ noteId, ...at })
   }
   const [renamingNoteId, setRenamingNoteId] = useState<string | null>(null)
   const [renameNoteDraft, setRenameNoteDraft] = useState('')
@@ -296,6 +302,49 @@ function Sidebar(): React.JSX.Element {
       if (sectionOf(dragId) !== sectionOf(noteId)) setNoteSection(dragId, sectionOf(noteId))
       moveNote(dragId, noteId, positionFromEvent(event))
     }
+  }
+
+  const isPictureDragTypes = (types: Iterable<string> | ArrayLike<string>): boolean =>
+    Array.from(types as ArrayLike<string>).some(
+      (type) => type === 'Files' || type === 'text/uri-list'
+    )
+
+  // Dropping pictures straight onto a row appends them to that note
+  // (handy when it isn't open). Files validate in main; URLs need http(s).
+  const onRowDropPictures = async (event: React.DragEvent, noteId: string): Promise<void> => {
+    event.preventDefault()
+    event.stopPropagation()
+    setDropNoteId(null)
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    const blocks: string[] = []
+    for (const file of Array.from(event.dataTransfer.files ?? [])) {
+      try {
+        blocks.push(await importDroppedPicture(file))
+      } catch (error) {
+        console.error('[sidebar] picture drop failed', error)
+      }
+    }
+    const urls = event.dataTransfer
+      .getData('text/uri-list')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => /^https?:\/\//i.test(line))
+    for (const url of urls) {
+      let alt = 'image'
+      try {
+        alt = new URL(url).hostname || alt
+      } catch {
+        // keep the fallback label
+      }
+      blocks.push(`![${alt}](${url})`)
+    }
+    if (blocks.length === 0) return
+    const target = useAppStore.getState().notes.find((n) => n.id === noteId)
+    if (!target || target.deletedAt) return
+    const body = target.content.trimEnd()
+    useAppStore
+      .getState()
+      .updateNote(noteId, { content: `${body}${body ? '\n\n' : ''}${blocks.join('\n\n')}\n` })
   }
 
   const onListDrop = (event: React.DragEvent<HTMLUListElement>): void => {
@@ -397,15 +446,28 @@ function Sidebar(): React.JSX.Element {
     }
   }
 
-  // Esc closes the row menu.
+  // Esc closes the row/space menus.
   useEffect(() => {
-    if (!menu) return
+    if (!menu && !spaceMenu) return
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setMenu(null)
+      if (event.key === 'Escape') {
+        setMenu(null)
+        setSpaceMenu(null)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [menu])
+  }, [menu, spaceMenu])
+
+  const expandAll = (): void => {
+    setExpandedIds(new Set(visibleNotes.map((n) => n.id)))
+    setCollapsedIds(new Set())
+  }
+
+  const collapseAll = (): void => {
+    setExpandedIds(new Set())
+    setCollapsedIds(new Set(noteSections.map((s) => s.id)))
+  }
 
   // Split view for a note: reuse a background tab for it, or open a fresh
   // one beside the current tab when it is already showing the note.
@@ -502,22 +564,40 @@ function Sidebar(): React.JSX.Element {
               setDraggingId(note.id)
               event.dataTransfer.effectAllowed = 'move'
             },
-            onDragEnd: clearDrag,
+            onDragEnd: () => {
+              clearDrag()
+              setDropNoteId(null)
+            },
             onDragOver: (event: React.DragEvent<HTMLLIElement>): void => {
               event.preventDefault()
               event.dataTransfer.dropEffect = 'move'
               if (dragIdRef.current && dragIdRef.current !== note.id) {
                 setDropHint({ id: note.id, before: positionFromEvent(event) })
               }
+              if (isPictureDragTypes(event.dataTransfer.types ?? [])) {
+                setDropNoteId(note.id)
+              }
             },
-            onDrop: (event: React.DragEvent<HTMLLIElement>): void => onNoteDrop(event, note.id)
+            onDragLeave: () => setDropNoteId(null),
+            onDrop: (event: React.DragEvent<HTMLLIElement>): void => {
+              // Internal reorders (note/section drags) keep working when the
+              // platform reports no types; anything carrying files or URLs
+              // from outside the app is a picture drop.
+              const internal = dragIdRef.current !== null || sectionDragRef.current !== null
+              const external =
+                event.dataTransfer.files.length > 0 ||
+                event.dataTransfer.getData('text/uri-list').trim().length > 0
+              if (external && !internal) void onRowDropPictures(event, note.id)
+              else onNoteDrop(event, note.id)
+              setDropNoteId(null)
+            }
           }
         : {}
     return (
       <li
         key={note.id}
         {...dragAttrs}
-        className={`sidebar__note${draggingId === note.id && depth === 0 ? ' sidebar__note--dragging' : ''}${hint ? (hint.before ? ' sidebar__note--drop-before' : ' sidebar__note--drop-after') : ''}`}
+        className={`sidebar__note${draggingId === note.id && depth === 0 ? ' sidebar__note--dragging' : ''}${hint ? (hint.before ? ' sidebar__note--drop-before' : ' sidebar__note--drop-after') : ''}${dropNoteId === note.id ? ' is-drop-target' : ''}`}
       >
         <div
           data-note-row={note.id}
@@ -565,19 +645,14 @@ function Sidebar(): React.JSX.Element {
             <button
               type="button"
               className="sidebar__note-main"
-              onClick={() => {
-                // Clicking the open page's own name renames it; any other
-                // note opens by reusing the current note tab.
-                if (activeNoteId === note.id) startRenameNote(note)
-                else openNoteInCurrentTab(note.id)
-              }}
-              title={activeNoteId === note.id ? 'Click to rename' : note.title || 'Untitled'}
+              onClick={() => openNoteInCurrentTab(note.id)}
+              onDoubleClick={() => startRenameNote(note)}
+              title={
+                note.title ? `${note.title} · double-click to rename` : 'Double-click to rename'
+              }
             >
               <FileTextIcon size={15} />
               <span className="sidebar__label">{note.title.trim() || 'Untitled'}</span>
-              {favorites.includes(note.id) && (
-                <StarIcon size={12} className="sidebar__fav-mark" aria-label="Favorited" />
-              )}
             </button>
           )}
           <button
@@ -719,29 +794,45 @@ function Sidebar(): React.JSX.Element {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <kbd className="sidebar__kbd">⌘K</kbd>
         </label>
       </div>
 
-      <div className="sidebar__scroll">
+      <div
+        className="sidebar__scroll"
+        onContextMenu={(event) => {
+          const target = event.target as HTMLElement
+          if (
+            target.closest(
+              '[data-note-row], .sidebar__divider, .sidebar__trash-row, .sidebar__trash-head, .sidebar__events, nav, button, input, textarea, .note-menu'
+            )
+          ) {
+            return
+          }
+          event.preventDefault()
+          const at = clampMenu(event.clientX, event.clientY)
+          setSpaceMenu(at)
+        }}
+      >
         <TodaySection />
 
         <nav className="sidebar__nav" aria-label="Primary">
-          {NAV_ITEMS.filter((item) => item.key !== 'settings').map((item) => {
-            const Icon = item.icon
-            const isActive = activeTab?.kind === item.key
-            return (
-              <button
-                key={item.key}
-                type="button"
-                className={`sidebar__row${isActive ? ' is-active' : ''}`}
-                onClick={() => openNav(item.key)}
-              >
-                <Icon size={16} />
-                <span className="sidebar__label">{item.label}</span>
-              </button>
-            )
-          })}
+          {NAV_ITEMS.filter((item) => item.key !== 'settings' && item.key !== 'graph').map(
+            (item) => {
+              const Icon = item.icon
+              const isActive = activeTab?.kind === item.key
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`sidebar__row${isActive ? ' is-active' : ''}`}
+                  onClick={() => openNav(item.key)}
+                >
+                  <Icon size={16} />
+                  <span className="sidebar__label">{item.label}</span>
+                </button>
+              )
+            }
+          )}
         </nav>
 
         <div className="sidebar__section">
@@ -750,11 +841,11 @@ function Sidebar(): React.JSX.Element {
             <button
               type="button"
               className="sidebar__icon-btn"
-              title="New section — a divider that groups notes"
-              aria-label="New section — a divider that groups notes"
-              onClick={() => newSection()}
+              title="Open graph"
+              aria-label="Open graph"
+              onClick={() => openNav('graph')}
             >
-              <SectionIcon size={15} />
+              <GraphIcon size={15} />
             </button>
             <button
               type="button"
@@ -806,32 +897,41 @@ function Sidebar(): React.JSX.Element {
                   {ungrouped.map((note) => renderTree(note, 0, []))}
                 </ul>
               )}
-              {noteSections.length === 0 && ungrouped.length > 0 && (
-                <button type="button" className="sidebar__new-section" onClick={() => newSection()}>
-                  <SectionIcon size={15} />
-                  <span className="sidebar__new-section-text">
-                    <strong>New section</strong>
-                    <small>Group notes under a draggable divider</small>
-                  </span>
-                </button>
-              )}
               {trashed.length > 0 && (
                 <div className="sidebar__section-block" aria-label="Trash">
-                  <button
-                    type="button"
-                    className="sidebar__section-head sidebar__trash-head"
-                    aria-expanded={trashOpen}
-                    onClick={() => setTrashOpen((value) => !value)}
-                  >
-                    <span className="sidebar__section-title">
-                      <TrashIcon size={12} />
-                      Trash · {trashed.length}
-                    </span>
-                    <ChevronDownIcon
-                      size={14}
-                      className={`sidebar__chevron${trashOpen ? ' is-open' : ''}`}
-                    />
-                  </button>
+                  <div className="sidebar__section-head">
+                    <button
+                      type="button"
+                      className="sidebar__section-head--toggle sidebar__trash-head"
+                      aria-expanded={trashOpen}
+                      onClick={() => setTrashOpen((value) => !value)}
+                    >
+                      <span className="sidebar__section-title">
+                        <TrashIcon size={12} />
+                        Trash · {trashed.length}
+                      </span>
+                      <ChevronDownIcon
+                        size={14}
+                        className={`sidebar__chevron${trashOpen ? ' is-open' : ''}`}
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      className="sidebar__empty-trash"
+                      title="Destroy everything in Trash forever"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Destroy all ${trashed.length} trashed note${trashed.length === 1 ? '' : 's'} forever? This cannot be undone.`
+                          )
+                        ) {
+                          emptyTrash()
+                        }
+                      }}
+                    >
+                      Empty
+                    </button>
+                  </div>
                   {trashOpen &&
                     trashed.map((note) => {
                       const label = note.title.trim() || 'Untitled'
@@ -873,16 +973,70 @@ function Sidebar(): React.JSX.Element {
         </div>
       </div>
 
-      {menu && (
+      {(menu || spaceMenu) && (
         <div
           className="note-menu__backdrop"
           aria-hidden="true"
-          onClick={() => setMenu(null)}
+          onClick={() => {
+            setMenu(null)
+            setSpaceMenu(null)
+          }}
           onContextMenu={(event) => {
             event.preventDefault()
             setMenu(null)
+            setSpaceMenu(null)
           }}
         />
+      )}
+      {spaceMenu && (
+        <div
+          className="note-menu note-menu--fixed"
+          role="menu"
+          aria-label="Notes section actions"
+          style={{ left: spaceMenu.x, top: spaceMenu.y }}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            className="note-menu__item"
+            onClick={() => {
+              setSpaceMenu(null)
+              createNote()
+            }}
+          >
+            New page
+          </button>
+          <button
+            type="button"
+            className="note-menu__item"
+            onClick={() => {
+              setSpaceMenu(null)
+              newSection()
+            }}
+          >
+            New section
+          </button>
+          <button
+            type="button"
+            className="note-menu__item"
+            onClick={() => {
+              setSpaceMenu(null)
+              expandAll()
+            }}
+          >
+            Expand all
+          </button>
+          <button
+            type="button"
+            className="note-menu__item"
+            onClick={() => {
+              setSpaceMenu(null)
+              collapseAll()
+            }}
+          >
+            Collapse all
+          </button>
+        </div>
       )}
       {menu &&
         (() => {

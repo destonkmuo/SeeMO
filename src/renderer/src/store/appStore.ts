@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import type { ImageSide } from '../images'
 import { noteFileBase, orderedNotes, titleFromFileName, uniqueFileName } from '../notes'
 import { parseIcs } from '../ical'
 import {
@@ -42,6 +43,14 @@ export interface Note {
 
 /** Trash auto-destroys notes 30 days after they were trashed. */
 export const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+
+/** Per-picture layout: dock side (unlocked) and/or pinned width. */
+export interface ImageLayout {
+  /** Wrap alignment; present only while unlocked (docked). */
+  side?: ImageSide
+  /** Pinned width in pixels (inline and docked alike); absent = natural. */
+  w?: number
+}
 
 /**
  * An open tab. Notes are many-per-app; every nav destination is a singleton
@@ -91,6 +100,8 @@ interface AppState {
   noteSections: NoteSection[]
   /** Favorite note ids (sidebar lens). Stale ids render nothing. */
   favorites: string[]
+  /** noteId -> image src -> layout. Persisted per note, saved on change. */
+  imageLayout: Record<string, Record<string, ImageLayout>>
   /** Note awaiting an in-sidebar rename (set on creation, consumed once). */
   renamingNoteId: string | null
   /** noteId -> section id. Missing (or stale) entries render ungrouped. */
@@ -159,6 +170,9 @@ interface AppState {
   moveSection: (dragId: string, targetId: string | null, before: boolean) => void
   setNoteSection: (noteId: string, sectionId: string | null) => void
   toggleFavorite: (noteId: string) => void
+  setImageSide: (noteId: string, src: string, side: ImageSide) => void
+  setImageSize: (noteId: string, src: string, w: number | null) => void
+  clearImageFloat: (noteId: string, src: string) => void
   setRenamingNoteId: (id: string | null) => void
   openNoteInCurrentTab: (noteId: string) => void
   openNoteNewTab: (noteId: string) => string
@@ -170,6 +184,7 @@ interface AppState {
   toggleTabGroupCollapsed: (id: string) => void
   restoreNote: (id: string) => void
   destroyNote: (id: string) => void
+  emptyTrash: () => void
   createNote: (title?: string, sectionId?: string | null) => string
   updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'content'>>) => void
   deleteNote: (id: string) => void
@@ -367,6 +382,7 @@ export const useAppStore = create<AppState>()(
       noteSections: [],
       noteSection: {},
       favorites: [],
+      imageLayout: {},
       renamingNoteId: null,
       tabs: [initialTab],
       activeTabId: initialTab.id,
@@ -589,33 +605,48 @@ export const useAppStore = create<AppState>()(
         set((state) => {
           const index = state.tabs.findIndex((t) => t.id === id)
           if (index < 0) return {}
-          const tabs = state.tabs.filter((t) => t.id !== id)
-          const activeTabId =
+          let tabs = state.tabs.filter((t) => t.id !== id)
+          let activeTabId =
             state.activeTabId === id
               ? (tabs[index]?.id ?? tabs[index - 1]?.id ?? null)
               : state.activeTabId
+          // Never strand the app with zero tabs — fall back to Home.
+          if (tabs.length === 0) {
+            const home = navTab('home')
+            tabs = [home]
+            activeTabId = home.id
+          }
           // Closing the split tab itself dissolves the split.
           const splitTabId = state.splitTabId === id ? null : state.splitTabId
           const keep = new Set(tabs.map((t) => t.id))
+          const history = pruneHistory(state.tabHistory, state.historyIndex, keep)
           return {
             tabs,
             activeTabId,
             splitTabId,
             tabRecency: state.tabRecency.filter((t) => keep.has(t)),
-            ...pruneHistory(state.tabHistory, state.historyIndex, keep),
+            ...(history.tabHistory.length > 0
+              ? history
+              : {
+                  tabHistory: activeTabId ? [activeTabId] : [],
+                  historyIndex: activeTabId ? 0 : -1
+                }),
             tabGroup: pruneTabGroupMap(state.tabGroup, keep)
           }
         }),
-      closeAllTabs: () =>
-        set({
-          tabs: [],
-          activeTabId: null,
+      closeAllTabs: () => {
+        // Clearing everything lands back on Home, never an empty shell.
+        const home = navTab('home')
+        return set({
+          tabs: [home],
+          activeTabId: home.id,
           splitTabId: null,
-          tabRecency: [],
-          tabHistory: [],
-          historyIndex: -1,
+          tabRecency: [home.id],
+          tabHistory: [home.id],
+          historyIndex: 0,
           tabGroup: {}
-        }),
+        })
+      },
       moveTab: (dragId, targetId, before) =>
         set((state) => {
           if (dragId === targetId) return {}
@@ -695,6 +726,46 @@ export const useAppStore = create<AppState>()(
             ? state.favorites.filter((id) => id !== noteId)
             : [...state.favorites, noteId]
         })),
+      setImageSide: (noteId, src, side) =>
+        set((state) => ({
+          imageLayout: {
+            ...state.imageLayout,
+            [noteId]: {
+              ...state.imageLayout[noteId],
+              [src]: { ...state.imageLayout[noteId]?.[src], side }
+            }
+          }
+        })),
+      setImageSize: (noteId, src, w) =>
+        set((state) => {
+          const prev = state.imageLayout[noteId]?.[src]
+          const next = { ...prev }
+          if (w === null) delete next.w
+          else next.w = w
+          const inner = { ...state.imageLayout[noteId] }
+          if (next.side === undefined && next.w === undefined) {
+            delete inner[src]
+          } else {
+            inner[src] = next
+          }
+          const imageLayout = { ...state.imageLayout }
+          if (Object.keys(inner).length > 0) imageLayout[noteId] = inner
+          else delete imageLayout[noteId]
+          return { imageLayout }
+        }),
+      clearImageFloat: (noteId, src) =>
+        set((state) => {
+          // Locking back inline drops the dock side but keeps a pinned
+          // width, if any.
+          const prev = state.imageLayout[noteId]?.[src]
+          const inner = { ...state.imageLayout[noteId] }
+          if (prev && typeof prev.w === 'number') inner[src] = { w: prev.w }
+          else delete inner[src]
+          const imageLayout = { ...state.imageLayout }
+          if (Object.keys(inner).length > 0) imageLayout[noteId] = inner
+          else delete imageLayout[noteId]
+          return { imageLayout }
+        }),
       createNote: (title?: string, sectionId?: string | null) => {
         const note = { ...blankNote(), title: (title ?? '').trim() }
         const tab = noteTab(note.id)
@@ -786,6 +857,43 @@ export const useAppStore = create<AppState>()(
             set({ vaultError: `Could not restore ${fileName}.` })
           })
         }
+      },
+      emptyTrash: () => {
+        // Destroy everything in Trash at once. Vault files are already gone
+        // (removed at trash time), so this only drops records and slots.
+        const ids = new Set(
+          get()
+            .notes.filter((n) => n.deletedAt)
+            .map((n) => n.id)
+        )
+        if (ids.size === 0) return
+        set((state) => {
+          const tabs = state.tabs.filter((t) => !(t.kind === 'note' && ids.has(t.noteId)))
+          const activeTabId = tabs.some((t) => t.id === state.activeTabId)
+            ? state.activeTabId
+            : (tabs[0]?.id ?? null)
+          const splitTabId =
+            state.splitTabId && tabs.some((t) => t.id === state.splitTabId)
+              ? state.splitTabId
+              : null
+          const keep = new Set(tabs.map((t) => t.id))
+          const noteSection: Record<string, string> = {}
+          for (const [noteId, sectionId] of Object.entries(state.noteSection)) {
+            if (!ids.has(noteId)) noteSection[noteId] = sectionId
+          }
+          return {
+            notes: state.notes.filter((n) => !ids.has(n.id)),
+            noteOrder: state.noteOrder.filter((id) => !ids.has(id)),
+            tabs,
+            activeTabId,
+            splitTabId,
+            tabRecency: state.tabRecency.filter((t) => keep.has(t)),
+            ...pruneHistory(state.tabHistory, state.historyIndex, keep),
+            noteSection,
+            favorites: state.favorites.filter((fav) => !ids.has(fav)),
+            tabGroup: pruneTabGroupMap(state.tabGroup, keep)
+          }
+        })
       },
       destroyNote: (id) => {
         // Permanent: drops the record, order/section/favorite slots, and tabs.
@@ -1222,6 +1330,7 @@ export const useAppStore = create<AppState>()(
         noteSections: state.noteSections,
         noteSection: state.noteSection,
         favorites: state.favorites,
+        imageLayout: state.imageLayout,
         tabGroups: state.tabGroups,
         tabGroup: state.tabGroup,
         collapsedTabGroups: state.collapsedTabGroups,
@@ -1255,6 +1364,7 @@ export const useAppStore = create<AppState>()(
             | 'noteSections'
             | 'noteSection'
             | 'favorites'
+            | 'imageLayout'
             | 'tabGroups'
             | 'tabGroup'
             | 'collapsedTabGroups'
@@ -1316,6 +1426,22 @@ export const useAppStore = create<AppState>()(
           if (noteIds.has(noteId) && sectionIds.has(sectionId)) noteSection[noteId] = sectionId
         }
         const favorites = (saved.favorites ?? []).filter((id) => noteIds.has(id))
+        const imageLayout: Record<string, Record<string, ImageLayout>> = {}
+        for (const [noteId, inner] of Object.entries(saved.imageLayout ?? {})) {
+          if (!noteIds.has(noteId) || typeof inner !== 'object' || inner === null) continue
+          const positions: Record<string, ImageLayout> = {}
+          for (const [src, pos] of Object.entries(inner as Record<string, unknown>)) {
+            const p = pos as { side?: unknown; w?: unknown }
+            if (p === null || typeof p !== 'object') continue
+            const clean: ImageLayout = {}
+            if (p.side === 'left' || p.side === 'right' || p.side === 'center') {
+              clean.side = p.side
+            }
+            if (typeof p.w === 'number' && p.w > 0) clean.w = p.w
+            if (clean.side !== undefined || clean.w !== undefined) positions[src] = clean
+          }
+          if (Object.keys(positions).length > 0) imageLayout[noteId] = positions
+        }
         const tabGroups = (saved.tabGroups ?? []).filter(
           (g) =>
             g &&
@@ -1344,6 +1470,7 @@ export const useAppStore = create<AppState>()(
           noteSections,
           noteSection,
           favorites,
+          imageLayout,
           tabGroups,
           tabGroup,
           collapsedTabGroups,

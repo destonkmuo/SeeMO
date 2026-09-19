@@ -16,7 +16,10 @@ const vault: VaultApi = {
     ipcRenderer.invoke('vault:rename', oldName, newName),
   remove: (name: string) => ipcRenderer.invoke('vault:remove', name),
   readJson: (name: string) => ipcRenderer.invoke('vault:readJson', name),
-  writeJson: (name: string, data: unknown[]) => ipcRenderer.invoke('vault:writeJson', name, data)
+  writeJson: (name: string, data: unknown[]) => ipcRenderer.invoke('vault:writeJson', name, data),
+  importPicture: (sourcePath?: string) => ipcRenderer.invoke('vault:importPicture', sourcePath),
+  importPictureData: (name: string, data: ArrayBuffer) =>
+    ipcRenderer.invoke('vault:importPictureData', name, data)
 }
 
 const api = {
