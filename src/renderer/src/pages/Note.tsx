@@ -100,10 +100,31 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
           <BlockEditor
             value={note.content}
             onChange={(content) => updateNote(note.id, { content })}
-            placeholder="Write in markdown…  # heading, - list, **bold**"
+            placeholder="Write anything…  # heading · - list · **bold** · $math$ · ```js runs · Shift+Enter new block"
           />
         </div>
       </div>
+
+      <footer className="note__hints" aria-label="Editor shortcuts">
+        <span>
+          <kbd>Shift</kbd>+<kbd>Enter</kbd> new block
+        </span>
+        <span>
+          <kbd>Enter</kbd> newline
+        </span>
+        <span>
+          <kbd>Tab</kbd> indent
+        </span>
+        <span>
+          <kbd>$…$</kbd> math
+        </span>
+        <span>
+          <kbd>```js</kbd> + Run
+        </span>
+        <span>
+          <kbd>[[link]]</kbd> pages
+        </span>
+      </footer>
     </main>
   )
 }

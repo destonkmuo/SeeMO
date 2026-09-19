@@ -23,18 +23,6 @@ function IconBase({ size = 24, children, ...props }: IconProps): React.JSX.Eleme
   )
 }
 
-export function ListTodoIcon(props: IconProps): React.JSX.Element {
-  return (
-    <IconBase {...props}>
-      <rect x="3" y="5" width="6" height="6" rx="1" />
-      <path d="m3 17 2 2 4-4" />
-      <path d="M13 6h8" />
-      <path d="M13 12h8" />
-      <path d="M13 18h8" />
-    </IconBase>
-  )
-}
-
 export function CalendarIcon(props: IconProps): React.JSX.Element {
   return (
     <IconBase {...props}>
@@ -196,6 +184,41 @@ export function GraphIcon(props: IconProps): React.JSX.Element {
       <path d="m8.2 7 7.3.7" />
       <path d="m7.2 8.2 3.6 7.2" />
       <path d="m16.8 10.1-3.2 5.6" />
+    </IconBase>
+  )
+}
+
+export function MailIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="m2 7 10 7L22 7" />
+    </IconBase>
+  )
+}
+
+export function StarIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <path d="m12 2.5 2.9 6.1 6.6.8-4.9 4.6 1.3 6.6-5.9-3.3-5.9 3.3 1.3-6.6L2.5 9.4l6.6-.8z" />
+    </IconBase>
+  )
+}
+
+export function RestoreIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <path d="M3 12a9 9 0 1 0 2.6-6.4" />
+      <path d="M3 4v5h5" />
+    </IconBase>
+  )
+}
+
+export function SectionIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <rect x="3" y="4" width="18" height="6" rx="1.5" />
+      <rect x="3" y="14" width="18" height="6" rx="1.5" />
     </IconBase>
   )
 }

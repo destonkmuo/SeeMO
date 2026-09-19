@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { NAV_BY_KEY, NAV_LABELS } from '../nav'
-import { useAppStore } from '../store/appStore'
+import { TAB_GROUP_COLORS, useAppStore, type Tab } from '../store/appStore'
 import {
   FileTextIcon,
   ChevronLeftIcon,
@@ -16,6 +16,18 @@ interface DropHint {
   before: boolean
 }
 
+type MenuState =
+  | { kind: 'tab'; tabId: string; x: number; y: number }
+  | { kind: 'group'; groupId: string; x: number; y: number }
+  | null
+
+function clampMenu(x: number, y: number): { x: number; y: number } {
+  return {
+    x: Math.max(8, Math.min(x, window.innerWidth - 200)),
+    y: Math.max(8, Math.min(y, window.innerHeight - 300))
+  }
+}
+
 function TabBar(): React.JSX.Element {
   const tabs = useAppStore((state) => state.tabs)
   const activeTabId = useAppStore((state) => state.activeTabId)
@@ -23,6 +35,9 @@ function TabBar(): React.JSX.Element {
   const coreState = useAppStore((state) => state.coreState)
   const tabHistory = useAppStore((state) => state.tabHistory)
   const historyIndex = useAppStore((state) => state.historyIndex)
+  const tabGroups = useAppStore((state) => state.tabGroups)
+  const tabGroup = useAppStore((state) => state.tabGroup)
+  const collapsedTabGroups = useAppStore((state) => state.collapsedTabGroups)
   const setActiveTab = useAppStore((state) => state.setActiveTab)
   const goBackTab = useAppStore((state) => state.goBackTab)
   const goForwardTab = useAppStore((state) => state.goForwardTab)
@@ -31,15 +46,40 @@ function TabBar(): React.JSX.Element {
   const setSplitTab = useAppStore((state) => state.setSplitTab)
   const closeAllTabs = useAppStore((state) => state.closeAllTabs)
   const createNote = useAppStore((state) => state.createNote)
+  const createTabGroup = useAppStore((state) => state.createTabGroup)
+  const renameTabGroup = useAppStore((state) => state.renameTabGroup)
+  const setTabGroupColor = useAppStore((state) => state.setTabGroupColor)
+  const deleteTabGroup = useAppStore((state) => state.deleteTabGroup)
+  const assignTabToGroup = useAppStore((state) => state.assignTabToGroup)
+  const toggleTabGroupCollapsed = useAppStore((state) => state.toggleTabGroupCollapsed)
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropHint, setDropHint] = useState<DropHint | null>(null)
+  const [menu, setMenu] = useState<MenuState>(null)
+  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
   const dragIdRef = useRef<string | null>(null)
 
   // Browser-style history: Back revisits the previously active tab,
   // Forward redoes it. New visits truncate the forward trail.
   const canGoBack = historyIndex > 0
   const canGoForward = historyIndex >= 0 && historyIndex < tabHistory.length - 1
+
+  // Esc closes the context menu.
+  useEffect(() => {
+    if (!menu) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setMenu(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menu])
+
+  const groupIds = new Set(tabGroups.map((g) => g.id))
+  const groupOf = (tabId: string): string | null => {
+    const id = tabGroup[tabId]
+    return id !== undefined && groupIds.has(id) ? id : null
+  }
 
   const clearDrag = (): void => {
     dragIdRef.current = null
@@ -68,6 +108,100 @@ function TabBar(): React.JSX.Element {
     clearDrag()
     if (dragId) moveTab(dragId, null, false)
   }
+
+  const startGroupRename = (id: string, name: string): void => {
+    setMenu(null)
+    setRenamingGroupId(id)
+    setRenameDraft(name)
+  }
+
+  const commitGroupRename = (): void => {
+    if (renamingGroupId) renameTabGroup(renamingGroupId, renameDraft)
+    setRenamingGroupId(null)
+  }
+
+  const closeGroupTabs = (groupId: string): void => {
+    const state = useAppStore.getState()
+    for (const tab of state.tabs) {
+      if (state.tabGroup[tab.id] === groupId) state.closeTab(tab.id)
+    }
+  }
+
+  const renderTab = (tab: Tab): React.JSX.Element => {
+    const isActive = tab.id === activeTabId
+    const label =
+      tab.kind === 'note'
+        ? notes.find((n) => n.id === tab.noteId)?.title.trim() || 'Untitled'
+        : NAV_LABELS[tab.kind]
+    const Icon = tab.kind === 'note' ? FileTextIcon : NAV_BY_KEY[tab.kind].icon
+    const hint = dropHint?.id === tab.id ? dropHint : null
+
+    return (
+      <div
+        key={tab.id}
+        draggable
+        onDragStart={(event) => {
+          dragIdRef.current = tab.id
+          setDraggingId(tab.id)
+          event.dataTransfer.effectAllowed = 'move'
+        }}
+        onDragEnd={clearDrag}
+        onDragOver={(event) => {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'move'
+          if (dragIdRef.current && dragIdRef.current !== tab.id) {
+            setDropHint({ id: tab.id, before: positionFromEvent(event) })
+          }
+        }}
+        onDrop={(event) => onTabDrop(event, tab.id)}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          setMenu({ kind: 'tab', tabId: tab.id, ...clampMenu(event.clientX, event.clientY) })
+        }}
+        className={`tab${isActive ? ' is-active' : ''}${tab.kind === 'note' ? ' tab--note' : ''}${draggingId === tab.id ? ' tab--dragging' : ''}${hint ? (hint.before ? ' tab--drop-before' : ' tab--drop-after') : ''}`}
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={isActive}
+          className="tab__main"
+          title={label}
+          onClick={() => setActiveTab(tab.id)}
+        >
+          <Icon size={14} />
+          {tab.kind === 'agent' && (
+            <span className={`tab__dot tab__dot--${coreState}`} title={`Core: ${coreState}`} />
+          )}
+          <span className="tab__label">{label}</span>
+        </button>
+        <button
+          type="button"
+          className="tab__split"
+          aria-label={`Split view with ${label}`}
+          title={`Split view with ${label}`}
+          onClick={() => {
+            if (tab.id !== activeTabId) setSplitTab(tab.id)
+          }}
+        >
+          <SplitIcon size={13} />
+        </button>
+        <button
+          type="button"
+          className="tab__close"
+          aria-label={`Close ${label}`}
+          title={`Close ${label}`}
+          onClick={() => closeTab(tab.id)}
+        >
+          <XIcon size={13} />
+        </button>
+      </div>
+    )
+  }
+
+  const ungrouped = tabs.filter((t) => !groupOf(t.id))
+  const menuTab = menu?.kind === 'tab' ? tabs.find((t) => t.id === menu.tabId) : null
+  const menuGroup = menu?.kind === 'group' ? tabGroups.find((g) => g.id === menu.groupId) : null
+  const menuTabGroup = menuTab ? groupOf(menuTab.id) : null
 
   return (
     <div className="tabbar" role="tablist" aria-label="Open tabs">
@@ -98,72 +232,59 @@ function TabBar(): React.JSX.Element {
         onDragOver={(event) => event.preventDefault()}
         onDrop={onListDrop}
       >
-        {tabs.map((tab) => {
-          const isActive = tab.id === activeTabId
-          const label =
-            tab.kind === 'note'
-              ? notes.find((n) => n.id === tab.noteId)?.title.trim() || 'Untitled'
-              : NAV_LABELS[tab.kind]
-          const Icon = tab.kind === 'note' ? FileTextIcon : NAV_BY_KEY[tab.kind].icon
-          const hint = dropHint?.id === tab.id ? dropHint : null
-
+        {ungrouped.map((tab) => renderTab(tab))}
+        {tabGroups.map((group) => {
+          const groupTabs = tabs.filter((t) => groupOf(t.id) === group.id)
+          // The active tab's group never renders collapsed.
+          const collapsed =
+            collapsedTabGroups.includes(group.id) && !groupTabs.some((t) => t.id === activeTabId)
+          const renaming = renamingGroupId === group.id
           return (
             <div
-              key={tab.id}
-              draggable
-              onDragStart={(event) => {
-                dragIdRef.current = tab.id
-                setDraggingId(tab.id)
-                event.dataTransfer.effectAllowed = 'move'
-              }}
-              onDragEnd={clearDrag}
-              onDragOver={(event) => {
-                event.preventDefault()
-                event.dataTransfer.dropEffect = 'move'
-                if (dragIdRef.current && dragIdRef.current !== tab.id) {
-                  setDropHint({ id: tab.id, before: positionFromEvent(event) })
-                }
-              }}
-              onDrop={(event) => onTabDrop(event, tab.id)}
-              className={`tab${isActive ? ' is-active' : ''}${tab.kind === 'note' ? ' tab--note' : ''}${draggingId === tab.id ? ' tab--dragging' : ''}${hint ? (hint.before ? ' tab--drop-before' : ' tab--drop-after') : ''}`}
+              key={group.id}
+              className="tabgroup"
+              style={{ '--group-color': group.color } as CSSProperties}
             >
               <button
                 type="button"
-                role="tab"
-                aria-selected={isActive}
-                className="tab__main"
-                title={label}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                <Icon size={14} />
-                {tab.kind === 'agent' && (
-                  <span
-                    className={`tab__dot tab__dot--${coreState}`}
-                    title={`Core: ${coreState}`}
-                  />
-                )}
-                <span className="tab__label">{label}</span>
-              </button>
-              <button
-                type="button"
-                className="tab__split"
-                aria-label={`Split view with ${label}`}
-                title={`Split view with ${label}`}
-                onClick={() => {
-                  if (tab.id !== activeTabId) setSplitTab(tab.id)
+                className="tabgroup__head"
+                title={`${group.name} · click to ${collapsed ? 'expand' : 'collapse'} · double-click to rename`}
+                aria-expanded={!collapsed}
+                onClick={() => toggleTabGroupCollapsed(group.id)}
+                onDoubleClick={() => startGroupRename(group.id, group.name)}
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setMenu({
+                    kind: 'group',
+                    groupId: group.id,
+                    ...clampMenu(event.clientX, event.clientY)
+                  })
                 }}
               >
-                <SplitIcon size={13} />
+                <span className="tabgroup__dot" />
+                {renaming ? (
+                  <input
+                    className="tabgroup__input"
+                    autoFocus
+                    value={renameDraft}
+                    aria-label="Group name"
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => setRenameDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') commitGroupRename()
+                      if (event.key === 'Escape') setRenamingGroupId(null)
+                    }}
+                    onBlur={commitGroupRename}
+                  />
+                ) : (
+                  <>
+                    <span className="tabgroup__name">{group.name}</span>
+                    <span className="tabgroup__count">{groupTabs.length}</span>
+                  </>
+                )}
               </button>
-              <button
-                type="button"
-                className="tab__close"
-                aria-label={`Close ${label}`}
-                title={`Close ${label}`}
-                onClick={() => closeTab(tab.id)}
-              >
-                <XIcon size={13} />
-              </button>
+              {!collapsed && groupTabs.map((tab) => renderTab(tab))}
             </div>
           )
         })}
@@ -187,6 +308,126 @@ function TabBar(): React.JSX.Element {
       >
         <ClearAllIcon size={15} />
       </button>
+
+      {menu && (
+        <div
+          className="note-menu__backdrop"
+          aria-hidden="true"
+          onClick={() => setMenu(null)}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setMenu(null)
+          }}
+        />
+      )}
+      {menu && menuTab && (
+        <div
+          className="note-menu tabmenu"
+          role="menu"
+          style={{ left: menu.x, top: menu.y }}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            className="note-menu__item"
+            onClick={() => {
+              const id = createTabGroup(undefined, undefined, [menuTab.id])
+              const created = useAppStore.getState().tabGroups.find((g) => g.id === id)
+              setMenu(null)
+              if (created) startGroupRename(created.id, created.name)
+            }}
+          >
+            New group
+          </button>
+          {tabGroups.length > 0 && <p className="tabmenu__label">Add to group</p>}
+          {tabGroups.map((group) => (
+            <button
+              key={group.id}
+              type="button"
+              className="note-menu__item"
+              onClick={() => {
+                assignTabToGroup(menuTab.id, group.id)
+                setMenu(null)
+              }}
+            >
+              <span className="tabmenu__dot" style={{ background: group.color }} />
+              {group.name}
+            </button>
+          ))}
+          {menuTabGroup && (
+            <button
+              type="button"
+              className="note-menu__item"
+              onClick={() => {
+                assignTabToGroup(menuTab.id, null)
+                setMenu(null)
+              }}
+            >
+              Remove from group
+            </button>
+          )}
+          <button
+            type="button"
+            className="note-menu__item note-menu__item--danger"
+            onClick={() => {
+              setMenu(null)
+              closeTab(menuTab.id)
+            }}
+          >
+            Close tab
+          </button>
+        </div>
+      )}
+      {menu && menuGroup && (
+        <div
+          className="note-menu tabmenu"
+          role="menu"
+          aria-label={`${menuGroup.name} group`}
+          style={{ left: menu.x, top: menu.y }}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            className="note-menu__item"
+            onClick={() => startGroupRename(menuGroup.id, menuGroup.name)}
+          >
+            Rename group
+          </button>
+          <div className="tabmenu__swatches" role="group" aria-label="Group color">
+            {TAB_GROUP_COLORS.map((color) => (
+              <button
+                key={color}
+                type="button"
+                className={`tabmenu__swatch${menuGroup.color === color ? ' is-active' : ''}`}
+                style={{ background: color }}
+                aria-label={`Color ${color}`}
+                title={color}
+                onClick={() => setTabGroupColor(menuGroup.id, color)}
+              />
+            ))}
+          </div>
+          <button
+            type="button"
+            className="note-menu__item"
+            onClick={() => {
+              setMenu(null)
+              deleteTabGroup(menuGroup.id)
+            }}
+          >
+            Ungroup (keep tabs)
+          </button>
+          <button
+            type="button"
+            className="note-menu__item note-menu__item--danger"
+            onClick={() => {
+              setMenu(null)
+              closeGroupTabs(menuGroup.id)
+            }}
+          >
+            Close group&apos;s tabs
+          </button>
+        </div>
+      )}
     </div>
   )
 }

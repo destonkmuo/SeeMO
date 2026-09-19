@@ -5,7 +5,8 @@ import {
   CalendarIcon,
   GraphIcon,
   HomeIcon,
-  ListTodoIcon,
+  MailIcon,
+  TaskIcon,
   MoreIcon,
   SettingsIcon
 } from './components/icons'
@@ -20,11 +21,12 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { key: 'home', label: 'Home', icon: HomeIcon },
   { key: 'graph', label: 'Graph', icon: GraphIcon },
-  { key: 'todo', label: 'Todo', icon: ListTodoIcon },
+  { key: 'tasks', label: 'Tasks', icon: TaskIcon },
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'agent', label: 'SeeMO', icon: AgentIcon },
   { key: 'activity', label: 'SeeMO Activity', icon: ActivityIcon },
   { key: 'misc', label: 'Misc', icon: MoreIcon },
+  { key: 'email', label: 'Email', icon: MailIcon },
   { key: 'settings', label: 'Settings', icon: SettingsIcon }
 ]
 

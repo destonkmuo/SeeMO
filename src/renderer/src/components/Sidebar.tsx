@@ -1,15 +1,25 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { NAV_ITEMS } from '../nav'
 import { buildNoteGraph, orderedNotes } from '../notes'
 import { LOCAL_CALENDAR_ID, expandItemDates, todayISO, type CalendarItem } from '../planner'
-import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth, useAppStore, type Note } from '../store/appStore'
+import {
+  SIDEBAR_DEFAULT_WIDTH,
+  TRASH_RETENTION_MS,
+  clampSidebarWidth,
+  useAppStore,
+  type Note
+} from '../store/appStore'
 import {
   CalendarIcon,
   ChevronDownIcon,
   FileTextIcon,
+  MoreIcon,
   PlusIcon,
+  RestoreIcon,
   SearchIcon,
+  SectionIcon,
   SettingsIcon,
+  StarIcon,
   TrashIcon
 } from './icons'
 
@@ -31,7 +41,7 @@ function formatClock(hhmm: string): string {
 
 /**
  * Today at a glance: today's calendar events (local + enabled subscriptions,
- * recurrence-aware) above today's todos (due today or overdue). Replaces the
+ * recurrence-aware) above today's tasks (due today or overdue). Replaces the
  * old "upcoming events" placeholder, which never showed anything actionable.
  */
 function TodaySection(): React.JSX.Element {
@@ -40,8 +50,8 @@ function TodaySection(): React.JSX.Element {
   const subscriptions = useAppStore((state) => state.subscriptions)
   const localCalendarColor = useAppStore((state) => state.localCalendarColor)
   const plannerReady = useAppStore((state) => state.plannerReady)
-  const todos = useAppStore((state) => state.todos)
-  const toggleTodo = useAppStore((state) => state.toggleTodo)
+  const tasks = useAppStore((state) => state.tasks)
+  const toggleTask = useAppStore((state) => state.toggleTask)
   const openNav = useAppStore((state) => state.openNav)
 
   const today = todayISO()
@@ -69,15 +79,15 @@ function TodaySection(): React.JSX.Element {
     return rows
   }, [calendarItems, subscriptions, localCalendarColor, today])
 
-  const todaysTodos = useMemo(
+  const todaysTasks = useMemo(
     () =>
-      todos
-        .filter((todo) => todo.status !== 'completed' && todo.due !== null && todo.due <= today)
+      tasks
+        .filter((task) => task.status !== 'completed' && task.due !== null && task.due <= today)
         .sort((a, b) => ((a.due ?? '') + (a.time ?? '') < (b.due ?? '') + (b.time ?? '') ? -1 : 1)),
-    [todos, today]
+    [tasks, today]
   )
 
-  const count = events.length + todaysTodos.length
+  const count = events.length + todaysTasks.length
 
   return (
     <section className="sidebar__events" aria-label="Today">
@@ -118,23 +128,23 @@ function TodaySection(): React.JSX.Element {
               <span className="sidebar__label">{event.title}</span>
             </button>
           ))}
-          {todaysTodos.length > 0 && <p className="sidebar__today-group">To do</p>}
-          {todaysTodos.map((todo) => (
-            <div key={todo.id} className="sidebar__today-row" title={todo.title}>
+          {todaysTasks.length > 0 && <p className="sidebar__today-group">Tasks</p>}
+          {todaysTasks.map((task) => (
+            <div key={task.id} className="sidebar__today-row" title={task.title}>
               <input
                 type="checkbox"
                 className="sidebar__today-check"
                 checked={false}
-                aria-label={`Mark done: ${todo.title || 'Untitled'}`}
-                onChange={() => toggleTodo(todo.id)}
+                aria-label={`Mark done: ${task.title || 'Untitled'}`}
+                onChange={() => toggleTask(task.id)}
               />
               <span className="sidebar__label">
-                {todo.title.trim() || 'Untitled'}{' '}
-                {todo.due !== null && todo.due < today && (
+                {task.title.trim() || 'Untitled'}{' '}
+                {task.due !== null && task.due < today && (
                   <span className="sidebar__today-overdue">overdue</span>
                 )}
               </span>
-              {todo.time && <span className="sidebar__today-time">{formatClock(todo.time)}</span>}
+              {task.time && <span className="sidebar__today-time">{formatClock(task.time)}</span>}
             </div>
           ))}
           {count === 0 && (
@@ -155,19 +165,53 @@ function Sidebar(): React.JSX.Element {
   const query = useAppStore((state) => state.query)
   const coreState = useAppStore((state) => state.coreState)
   const openNav = useAppStore((state) => state.openNav)
-  const openNote = useAppStore((state) => state.openNote)
+  const openNoteInCurrentTab = useAppStore((state) => state.openNoteInCurrentTab)
+  const openNoteNewTab = useAppStore((state) => state.openNoteNewTab)
+  const updateNote = useAppStore((state) => state.updateNote)
+  const toggleFavorite = useAppStore((state) => state.toggleFavorite)
+  const restoreNote = useAppStore((state) => state.restoreNote)
+  const destroyNote = useAppStore((state) => state.destroyNote)
+  const favorites = useAppStore((state) => state.favorites)
   const setQuery = useAppStore((state) => state.setQuery)
   const createNote = useAppStore((state) => state.createNote)
   const deleteNote = useAppStore((state) => state.deleteNote)
   const moveNote = useAppStore((state) => state.moveNote)
+  const noteSections = useAppStore((state) => state.noteSections)
+  const noteSection = useAppStore((state) => state.noteSection)
+  const createSection = useAppStore((state) => state.createSection)
+  const renameSection = useAppStore((state) => state.renameSection)
+  const deleteSection = useAppStore((state) => state.deleteSection)
+  const moveSection = useAppStore((state) => state.moveSection)
+  const setNoteSection = useAppStore((state) => state.setNoteSection)
   const sidebarWidth = useAppStore((state) => state.sidebarWidth)
   const setSidebarWidth = useAppStore((state) => state.setSidebarWidth)
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropHint, setDropHint] = useState<{ id: string; before: boolean } | null>(null)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [sectionDraggingId, setSectionDraggingId] = useState<string | null>(null)
+  const [sectionDropHint, setSectionDropHint] = useState<{ id: string; before: boolean } | null>(
+    null
+  )
+  const [noteOverSection, setNoteOverSection] = useState<string | null>(null)
+  const [menu, setMenu] = useState<{ noteId: string; x: number; y: number } | null>(null)
+
+  const openMenuAt = (noteId: string, x: number, y: number): void => {
+    setMenu({
+      noteId,
+      x: Math.max(8, Math.min(x, window.innerWidth - 190)),
+      y: Math.max(8, Math.min(y, window.innerHeight - 260))
+    })
+  }
+  const [renamingNoteId, setRenamingNoteId] = useState<string | null>(null)
+  const [renameNoteDraft, setRenameNoteDraft] = useState('')
+  const [trashOpen, setTrashOpen] = useState(true)
   const [resizing, setResizing] = useState(false)
   const dragIdRef = useRef<string | null>(null)
+  const sectionDragRef = useRef<string | null>(null)
   const asideRef = useRef<HTMLElement>(null)
   const resizeStartRef = useRef({ x: 0, width: 0 })
 
@@ -183,8 +227,22 @@ function Sidebar(): React.JSX.Element {
   // Top level shows roots only: a note with a parent lives nested under it,
   // never beside it. While searching, fall back to a flat match list so
   // results are never hidden inside collapsed parents.
-  const graph = useMemo(() => buildNoteGraph(orderedNotes(notes, noteOrder)), [notes, noteOrder])
-  const visibleNotes = (needle ? orderedNotes(notes, noteOrder) : graph.roots).filter(matchesQuery)
+  const liveNotes = useMemo(() => notes.filter((note) => !note.deletedAt), [notes])
+  const graph = useMemo(
+    () => buildNoteGraph(orderedNotes(liveNotes, noteOrder)),
+    [liveNotes, noteOrder]
+  )
+  const visibleNotes = (needle ? orderedNotes(liveNotes, noteOrder) : graph.roots).filter(
+    matchesQuery
+  )
+  const favoriteRoots = visibleNotes.filter((note) => favorites.includes(note.id))
+  const trashed = useMemo(
+    () =>
+      notes
+        .filter((note) => note.deletedAt)
+        .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0)),
+    [notes]
+  )
 
   const toggleExpand = (id: string): void => {
     setExpandedIds((prev) => {
@@ -202,6 +260,25 @@ function Sidebar(): React.JSX.Element {
     dragIdRef.current = null
     setDraggingId(null)
     setDropHint(null)
+    setNoteOverSection(null)
+  }
+
+  const clearSectionDrag = (): void => {
+    sectionDragRef.current = null
+    setSectionDraggingId(null)
+    setSectionDropHint(null)
+  }
+
+  // Valid section for a note, or null for ungrouped (unknown ids fall out).
+  const sectionIds = new Set(noteSections.map((s) => s.id))
+  const sectionOf = (noteId: string): string | null => {
+    const id = noteSection[noteId]
+    return id !== undefined && sectionIds.has(id) ? id : null
+  }
+
+  const positionAbove = (event: React.DragEvent<HTMLElement>): boolean => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    return event.clientY - rect.top < rect.height / 2
   }
 
   const positionFromEvent = (event: React.DragEvent<HTMLLIElement>): boolean => {
@@ -214,7 +291,11 @@ function Sidebar(): React.JSX.Element {
     event.stopPropagation()
     const dragId = dragIdRef.current
     clearDrag()
-    if (dragId && dragId !== noteId) moveNote(dragId, noteId, positionFromEvent(event))
+    if (dragId && dragId !== noteId) {
+      // Adopt the target's section when dragging across dividers.
+      if (sectionOf(dragId) !== sectionOf(noteId)) setNoteSection(dragId, sectionOf(noteId))
+      moveNote(dragId, noteId, positionFromEvent(event))
+    }
   }
 
   const onListDrop = (event: React.DragEvent<HTMLUListElement>): void => {
@@ -222,7 +303,155 @@ function Sidebar(): React.JSX.Element {
     event.preventDefault()
     const dragId = dragIdRef.current
     clearDrag()
-    if (dragId) moveNote(dragId, null, false)
+    if (dragId) {
+      setNoteSection(dragId, null)
+      moveNote(dragId, null, false)
+    }
+  }
+
+  // Drop a note onto a section: file it there, pinned after that section's
+  // last root so it lands inside the group.
+  const assignToSection = (dragId: string, sectionId: string | null): void => {
+    const peers = visibleNotes.filter((n) => n.id !== dragId && sectionOf(n.id) === sectionId)
+    setNoteSection(dragId, sectionId)
+    if (peers.length > 0) moveNote(dragId, peers[peers.length - 1].id, false)
+    else moveNote(dragId, null, false)
+  }
+
+  const onSectionDrop = (event: React.DragEvent<HTMLDivElement>, sectionId: string): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    const secDrag = sectionDragRef.current
+    const noteDrag = dragIdRef.current
+    clearDrag()
+    clearSectionDrag()
+    // Divider-on-divider reorders sections; note-on-divider files the note.
+    if (secDrag && secDrag !== sectionId) {
+      moveSection(secDrag, sectionId, positionAbove(event))
+    } else if (noteDrag) {
+      assignToSection(noteDrag, sectionId)
+    }
+  }
+
+  const onSectionListDrop = (event: React.DragEvent<HTMLUListElement>, sectionId: string): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    const noteDrag = dragIdRef.current
+    clearDrag()
+    if (noteDrag) assignToSection(noteDrag, sectionId)
+  }
+
+  const newSection = (): void => {
+    const id = createSection()
+    const created = useAppStore.getState().noteSections.find((s) => s.id === id)
+    setRenameDraft(created?.title ?? 'New section')
+    setRenamingId(id)
+  }
+
+  const commitRename = (): void => {
+    if (renamingId) renameSection(renamingId, renameDraft)
+    setRenamingId(null)
+  }
+
+  const toggleCollapsed = (id: string): void => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const confirmDeleteSection = (id: string, title: string): void => {
+    if (window.confirm(`Delete section "${title}"? Its notes stay under Notes.`)) {
+      deleteSection(id)
+    }
+  }
+
+  const startRenameNote = (note: Note): void => {
+    setMenu(null)
+    setRenamingNoteId(note.id)
+    setRenameNoteDraft(note.title)
+  }
+
+  const commitRenameNote = (): void => {
+    const id = renamingNoteId
+    setRenamingNoteId(null)
+    if (!id) return
+    const live = useAppStore.getState().notes.find((n) => n.id === id)
+    const title = renameNoteDraft.trim()
+    if (live && !live.deletedAt && title !== live.title) updateNote(id, { title })
+  }
+
+  const trashNote = (note: Note): void => {
+    const label = note.title.trim() || 'Untitled'
+    if (window.confirm(`Delete "${label}"? You can restore it from Trash within 30 days.`)) {
+      deleteNote(note.id)
+    }
+  }
+
+  const destroyNoteForever = (note: Note): void => {
+    const label = note.title.trim() || 'Untitled'
+    if (window.confirm(`Destroy "${label}" forever? This cannot be undone.`)) {
+      destroyNote(note.id)
+    }
+  }
+
+  // Esc closes the row menu.
+  useEffect(() => {
+    if (!menu) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setMenu(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menu])
+
+  // Split view for a note: reuse a background tab for it, or open a fresh
+  // one beside the current tab when it is already showing the note.
+  const splitNote = (noteId: string): void => {
+    const state = useAppStore.getState()
+    const prevActive = state.activeTabId
+    const background = state.tabs.find(
+      (t) => t.kind === 'note' && t.noteId === noteId && t.id !== prevActive
+    )
+    if (background) {
+      state.setSplitTab(background.id)
+      return
+    }
+    const id = state.openNoteNewTab(noteId)
+    if (!id) return
+    if (prevActive) state.setActiveTab(prevActive)
+    if (useAppStore.getState().activeTabId !== id) state.setSplitTab(id)
+  }
+
+  // "Today" math is render-stable for the life of this mount; trash ages in
+  // whole days, so a per-mount timestamp never visibly drifts.
+  const [nowMs] = useState(() => Date.now())
+
+  // New pages arrive with a rename signal: open the inline field on the row.
+  // Deferred a frame so the rename state lands as an event-style update.
+  const renamingSignal = useAppStore((state) => state.renamingNoteId)
+  useEffect(() => {
+    if (!renamingSignal) return
+    const frame = requestAnimationFrame(() => {
+      const { notes: live, setRenamingNoteId: clear } = useAppStore.getState()
+      clear(null)
+      const note = live.find((n) => n.id === renamingSignal)
+      if (!note || note.deletedAt) return
+      setRenamingNoteId(note.id)
+      setRenameNoteDraft(note.title)
+      document.querySelector(`[data-note-row="${note.id}"]`)?.scrollIntoView({ block: 'nearest' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [renamingSignal])
+
+  const trashDaysLeft = (deletedAt: number, now: number): string => {
+    const days = Math.max(
+      0,
+      Math.ceil((deletedAt + TRASH_RETENTION_MS - now) / (24 * 60 * 60 * 1000))
+    )
+    return days <= 0 ? 'today' : `${days}d`
   }
 
   // Sidebar edge drag: paint live via the DOM for 60fps, commit to the
@@ -291,9 +520,15 @@ function Sidebar(): React.JSX.Element {
         className={`sidebar__note${draggingId === note.id && depth === 0 ? ' sidebar__note--dragging' : ''}${hint ? (hint.before ? ' sidebar__note--drop-before' : ' sidebar__note--drop-after') : ''}`}
       >
         <div
+          data-note-row={note.id}
           className={`sidebar__row sidebar__row--note${
             activeNoteId === note.id ? ' is-active' : ''
           }`}
+          onContextMenu={(event) => {
+            if (renamingNoteId === note.id) return
+            event.preventDefault()
+            openMenuAt(note.id, event.clientX, event.clientY)
+          }}
         >
           {kids.length > 0 ? (
             <button
@@ -312,28 +547,52 @@ function Sidebar(): React.JSX.Element {
           ) : (
             <span className="sidebar__twisty sidebar__twisty--spacer" aria-hidden="true" />
           )}
+          {renamingNoteId === note.id ? (
+            <input
+              className="sidebar__row-input"
+              autoFocus
+              value={renameNoteDraft}
+              placeholder="Untitled"
+              aria-label="Note name"
+              onChange={(event) => setRenameNoteDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') commitRenameNote()
+                if (event.key === 'Escape') setRenamingNoteId(null)
+              }}
+              onBlur={commitRenameNote}
+            />
+          ) : (
+            <button
+              type="button"
+              className="sidebar__note-main"
+              onClick={() => {
+                // Clicking the open page's own name renames it; any other
+                // note opens by reusing the current note tab.
+                if (activeNoteId === note.id) startRenameNote(note)
+                else openNoteInCurrentTab(note.id)
+              }}
+              title={activeNoteId === note.id ? 'Click to rename' : note.title || 'Untitled'}
+            >
+              <FileTextIcon size={15} />
+              <span className="sidebar__label">{note.title.trim() || 'Untitled'}</span>
+              {favorites.includes(note.id) && (
+                <StarIcon size={12} className="sidebar__fav-mark" aria-label="Favorited" />
+              )}
+            </button>
+          )}
           <button
             type="button"
-            className="sidebar__note-main"
-            onClick={() => openNote(note.id)}
-            title={note.title || 'Untitled'}
-          >
-            <FileTextIcon size={15} />
-            <span className="sidebar__label">{note.title.trim() || 'Untitled'}</span>
-          </button>
-          <button
-            type="button"
-            className="sidebar__icon-btn sidebar__icon-btn--danger"
-            title="Delete note"
-            aria-label={`Delete ${note.title || 'Untitled'}`}
-            onClick={() => {
-              const label = note.title.trim() || 'Untitled'
-              if (window.confirm(`Delete "${label}"? This cannot be undone.`)) {
-                deleteNote(note.id)
-              }
+            className="sidebar__icon-btn"
+            title="Note actions"
+            aria-label={`Actions for ${note.title || 'Untitled'}`}
+            aria-expanded={menu?.noteId === note.id}
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect()
+              if (menu?.noteId === note.id) setMenu(null)
+              else openMenuAt(note.id, rect.right - 170, rect.bottom + 4)
             }}
           >
-            <TrashIcon size={14} />
+            <MoreIcon size={15} />
           </button>
         </div>
         {kids.length > 0 && isOpen && (
@@ -344,6 +603,104 @@ function Sidebar(): React.JSX.Element {
       </li>
     )
   }
+
+  // One custom section: draggable divider header plus its notes. Dividers
+  // reorder against each other; notes dropped on the header or its list get
+  // filed into the section.
+  const renderSection = (section: { id: string; title: string }): React.JSX.Element => {
+    const roots = visibleNotes.filter((note) => sectionOf(note.id) === section.id)
+    const collapsed = collapsedIds.has(section.id)
+    const renaming = renamingId === section.id
+    const hint = sectionDropHint?.id === section.id ? sectionDropHint : null
+    return (
+      <div key={section.id} className="sidebar__section-block">
+        <div
+          draggable={!renaming}
+          onDragStart={(event) => {
+            sectionDragRef.current = section.id
+            setSectionDraggingId(section.id)
+            event.dataTransfer.effectAllowed = 'move'
+          }}
+          onDragEnd={clearSectionDrag}
+          onDragOver={(event) => {
+            if (sectionDragRef.current && sectionDragRef.current !== section.id) {
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'move'
+              setSectionDropHint({ id: section.id, before: positionAbove(event) })
+            } else if (dragIdRef.current) {
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'move'
+              setNoteOverSection(section.id)
+            }
+          }}
+          onDragLeave={() => setNoteOverSection(null)}
+          onDrop={(event) => onSectionDrop(event, section.id)}
+          className={`sidebar__divider${sectionDraggingId === section.id ? ' sidebar__divider--dragging' : ''}${hint ? (hint.before ? ' sidebar__divider--drop-before' : ' sidebar__divider--drop-after') : ''}${noteOverSection === section.id ? ' is-note-target' : ''}`}
+        >
+          {renaming ? (
+            <input
+              className="sidebar__divider-input"
+              autoFocus
+              value={renameDraft}
+              aria-label="Section name"
+              onChange={(event) => setRenameDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') commitRename()
+                if (event.key === 'Escape') setRenamingId(null)
+              }}
+              onBlur={commitRename}
+            />
+          ) : (
+            <button
+              type="button"
+              className="sidebar__divider-main"
+              title="Collapse · double-click to rename · drag to reorder"
+              onClick={() => toggleCollapsed(section.id)}
+              onDoubleClick={() => {
+                setRenameDraft(section.title)
+                setRenamingId(section.id)
+              }}
+            >
+              <ChevronDownIcon
+                size={13}
+                className={`sidebar__chevron${collapsed ? '' : ' is-open'}`}
+              />
+              <span className="sidebar__label">{section.title}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            className="sidebar__icon-btn"
+            title={`Add note to ${section.title}`}
+            aria-label={`Add note to ${section.title}`}
+            onClick={() => createNote(undefined, section.id)}
+          >
+            <PlusIcon size={14} />
+          </button>
+          <button
+            type="button"
+            className="sidebar__icon-btn sidebar__icon-btn--danger"
+            title={`Delete section ${section.title}`}
+            aria-label={`Delete section ${section.title}`}
+            onClick={() => confirmDeleteSection(section.id, section.title)}
+          >
+            <TrashIcon size={14} />
+          </button>
+        </div>
+        {!collapsed && (
+          <ul
+            className="sidebar__notes"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => onSectionListDrop(event, section.id)}
+          >
+            {roots.map((note) => renderTree(note, 0, []))}
+          </ul>
+        )}
+      </div>
+    )
+  }
+
+  const ungrouped = visibleNotes.filter((note) => sectionOf(note.id) === null)
 
   return (
     <aside
@@ -370,7 +727,7 @@ function Sidebar(): React.JSX.Element {
         <TodaySection />
 
         <nav className="sidebar__nav" aria-label="Primary">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter((item) => item.key !== 'settings').map((item) => {
             const Icon = item.icon
             const isActive = activeTab?.kind === item.key
             return (
@@ -393,6 +750,15 @@ function Sidebar(): React.JSX.Element {
             <button
               type="button"
               className="sidebar__icon-btn"
+              title="New section — a divider that groups notes"
+              aria-label="New section — a divider that groups notes"
+              onClick={() => newSection()}
+            >
+              <SectionIcon size={15} />
+            </button>
+            <button
+              type="button"
+              className="sidebar__icon-btn"
               title="New note"
               aria-label="New note"
               onClick={() => createNote()}
@@ -401,22 +767,187 @@ function Sidebar(): React.JSX.Element {
             </button>
           </div>
 
-          {visibleNotes.length === 0 ? (
-            <p className="sidebar__empty">
-              {needle ? 'No notes match your search.' : 'No notes yet — create one.'}
-            </p>
+          {needle ? (
+            visibleNotes.length === 0 ? (
+              <p className="sidebar__empty">No notes match your search.</p>
+            ) : (
+              <ul
+                className="sidebar__notes"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={onListDrop}
+              >
+                {visibleNotes.map((note) => renderTree(note, 0, []))}
+              </ul>
+            )
           ) : (
-            <ul
-              className="sidebar__notes"
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={onListDrop}
-            >
-              {visibleNotes.map((note) => renderTree(note, 0, []))}
-            </ul>
+            <>
+              {favoriteRoots.length > 0 && (
+                <div className="sidebar__section-block" aria-label="Favorites">
+                  <div className="sidebar__section-head">
+                    <span className="sidebar__section-title sidebar__fav-title">
+                      <StarIcon size={12} />
+                      Favorites
+                    </span>
+                  </div>
+                  <ul className="sidebar__notes">
+                    {favoriteRoots.map((note) => renderTree(note, 0, []))}
+                  </ul>
+                </div>
+              )}
+              {noteSections.map((section) => renderSection(section))}
+              {ungrouped.length === 0 && noteSections.length === 0 ? (
+                <p className="sidebar__empty">No notes yet — create one.</p>
+              ) : (
+                <ul
+                  className="sidebar__notes"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={onListDrop}
+                >
+                  {ungrouped.map((note) => renderTree(note, 0, []))}
+                </ul>
+              )}
+              {noteSections.length === 0 && ungrouped.length > 0 && (
+                <button type="button" className="sidebar__new-section" onClick={() => newSection()}>
+                  <SectionIcon size={15} />
+                  <span className="sidebar__new-section-text">
+                    <strong>New section</strong>
+                    <small>Group notes under a draggable divider</small>
+                  </span>
+                </button>
+              )}
+              {trashed.length > 0 && (
+                <div className="sidebar__section-block" aria-label="Trash">
+                  <button
+                    type="button"
+                    className="sidebar__section-head sidebar__trash-head"
+                    aria-expanded={trashOpen}
+                    onClick={() => setTrashOpen((value) => !value)}
+                  >
+                    <span className="sidebar__section-title">
+                      <TrashIcon size={12} />
+                      Trash · {trashed.length}
+                    </span>
+                    <ChevronDownIcon
+                      size={14}
+                      className={`sidebar__chevron${trashOpen ? ' is-open' : ''}`}
+                    />
+                  </button>
+                  {trashOpen &&
+                    trashed.map((note) => {
+                      const label = note.title.trim() || 'Untitled'
+                      return (
+                        <div key={note.id} className="sidebar__trash-row" title={label}>
+                          <FileTextIcon size={15} />
+                          <span className="sidebar__label">{label}</span>
+                          <span className="sidebar__trash-days">
+                            {trashDaysLeft(note.deletedAt ?? nowMs, nowMs)} left
+                          </span>
+                          <button
+                            type="button"
+                            className="sidebar__icon-btn"
+                            title={`Restore ${label}`}
+                            aria-label={`Restore ${label}`}
+                            onClick={() => {
+                              restoreNote(note.id)
+                              openNoteInCurrentTab(note.id)
+                            }}
+                          >
+                            <RestoreIcon size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="sidebar__icon-btn sidebar__icon-btn--danger"
+                            title={`Destroy ${label} forever`}
+                            aria-label={`Destroy ${label} forever`}
+                            onClick={() => destroyNoteForever(note)}
+                          >
+                            <TrashIcon size={14} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
 
+      {menu && (
+        <div
+          className="note-menu__backdrop"
+          aria-hidden="true"
+          onClick={() => setMenu(null)}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setMenu(null)
+          }}
+        />
+      )}
+      {menu &&
+        (() => {
+          const target = notes.find((n) => n.id === menu.noteId)
+          if (!target || target.deletedAt) return null
+          const label = target.title.trim() || 'Untitled'
+          const isFav = favorites.includes(target.id)
+          return (
+            <div
+              className="note-menu note-menu--fixed"
+              role="menu"
+              aria-label={`Actions for ${label}`}
+              style={{ left: menu.x, top: menu.y }}
+              onContextMenu={(event) => event.preventDefault()}
+            >
+              <button
+                type="button"
+                className="note-menu__item"
+                onClick={() => {
+                  setMenu(null)
+                  openNoteNewTab(target.id)
+                }}
+              >
+                Open in new tab
+              </button>
+              <button
+                type="button"
+                className="note-menu__item"
+                onClick={() => {
+                  setMenu(null)
+                  splitNote(target.id)
+                }}
+              >
+                Split view
+              </button>
+              <button
+                type="button"
+                className="note-menu__item"
+                onClick={() => startRenameNote(target)}
+              >
+                Rename
+              </button>
+              <button
+                type="button"
+                className="note-menu__item"
+                onClick={() => {
+                  setMenu(null)
+                  toggleFavorite(target.id)
+                }}
+              >
+                {isFav ? 'Unfavorite' : 'Favorite'}
+              </button>
+              <button
+                type="button"
+                className="note-menu__item note-menu__item--danger"
+                onClick={() => {
+                  setMenu(null)
+                  trashNote(target)
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          )
+        })()}
       <div className="sidebar__footer">
         <span className={`sidebar__state sidebar__state--${coreState}`} />
         <span className="sidebar__label">Core: {coreState}</span>

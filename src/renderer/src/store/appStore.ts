@@ -6,23 +6,24 @@ import {
   CALENDARS_FILE,
   CALENDAR_COLORS,
   CALENDAR_FILE,
+  TASKS_FILE,
   TODO_FILE,
   calendarItemFromDraft,
   draftFromItem,
   parseCalendarData,
   parseSubscriptions,
-  parseTodoItems,
+  parseTaskItems,
   todayISO,
-  todoItemFromDraft,
+  taskItemFromDraft,
   type CalendarDraft,
   type CalendarItem,
   type CalendarSubscription,
-  type TodoDraft,
-  type TodoItem
+  type TaskDraft,
+  type TaskItem
 } from '../planner'
 
 export type NavKey =
-  'home' | 'graph' | 'todo' | 'calendar' | 'agent' | 'activity' | 'misc' | 'settings'
+  'home' | 'graph' | 'tasks' | 'calendar' | 'agent' | 'activity' | 'misc' | 'email' | 'settings'
 
 /** Visual/behavioral state of the core orb. */
 export type CoreState = 'sleep' | 'idle' | 'working' | 'speaking' | 'summoned'
@@ -35,7 +36,12 @@ export interface Note {
   fileName: string
   createdAt: number
   updatedAt: number
+  /** Trash timestamp, or null/undefined while the note is live. */
+  deletedAt: number | null
 }
+
+/** Trash auto-destroys notes 30 days after they were trashed. */
+export const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 /**
  * An open tab. Notes are many-per-app; every nav destination is a singleton
@@ -81,6 +87,14 @@ interface AppState {
   notes: Note[]
   /** Manual sidebar order (note ids). Missing ids render first, by recency. */
   noteOrder: string[]
+  /** User-defined sidebar sections (dividers), in display order. */
+  noteSections: NoteSection[]
+  /** Favorite note ids (sidebar lens). Stale ids render nothing. */
+  favorites: string[]
+  /** Note awaiting an in-sidebar rename (set on creation, consumed once). */
+  renamingNoteId: string | null
+  /** noteId -> section id. Missing (or stale) entries render ungrouped. */
+  noteSection: Record<string, string>
   tabs: Tab[]
   activeTabId: string | null
   /** Tab ids, most-recently-active first. Powers the Ctrl+Tab switcher order. */
@@ -88,6 +102,12 @@ interface AppState {
   /** Linear visit history + cursor. Back/Forward step through it browser-style. */
   tabHistory: string[]
   historyIndex: number
+  /** Named, color-coded tab groups (top tab bar), in display order. */
+  tabGroups: TabGroup[]
+  /** tabId -> group id. Stale entries render ungrouped. */
+  tabGroup: Record<string, string>
+  /** Collapsed group ids hide their tabs until expanded. */
+  collapsedTabGroups: string[]
   query: string
   vaultPath: string | null
   vaultReady: boolean
@@ -133,7 +153,24 @@ interface AppState {
   closeAllTabs: () => void
   moveTab: (dragId: string, targetId: string | null, before: boolean) => void
   moveNote: (dragId: string, targetId: string | null, before: boolean) => void
-  createNote: (title?: string) => string
+  createSection: (title?: string) => string
+  renameSection: (id: string, title: string) => void
+  deleteSection: (id: string) => void
+  moveSection: (dragId: string, targetId: string | null, before: boolean) => void
+  setNoteSection: (noteId: string, sectionId: string | null) => void
+  toggleFavorite: (noteId: string) => void
+  setRenamingNoteId: (id: string | null) => void
+  openNoteInCurrentTab: (noteId: string) => void
+  openNoteNewTab: (noteId: string) => string
+  createTabGroup: (name?: string, color?: string, tabIds?: string[]) => string
+  renameTabGroup: (id: string, name: string) => void
+  setTabGroupColor: (id: string, color: string) => void
+  deleteTabGroup: (id: string) => void
+  assignTabToGroup: (tabId: string, groupId: string | null) => void
+  toggleTabGroupCollapsed: (id: string) => void
+  restoreNote: (id: string) => void
+  destroyNote: (id: string) => void
+  createNote: (title?: string, sectionId?: string | null) => string
   updateNote: (id: string, patch: Partial<Pick<Note, 'title' | 'content'>>) => void
   deleteNote: (id: string) => void
   initVault: (force?: boolean) => Promise<void>
@@ -144,7 +181,7 @@ interface AppState {
   updateChatMessage: (id: string, text: string) => void
   clearChat: () => void
   calendarItems: CalendarItem[]
-  todos: TodoItem[]
+  tasks: TaskItem[]
   subscriptions: CalendarSubscription[]
   localCalendarColor: string
   plannerReady: boolean
@@ -153,10 +190,10 @@ interface AppState {
   addCalendarItem: (draft: CalendarDraft) => void
   updateCalendarItem: (id: string, patch: Partial<CalendarDraft>) => void
   deleteCalendarItem: (id: string) => void
-  addTodo: (draft: TodoDraft) => string
-  updateTodo: (id: string, patch: Partial<TodoDraft> & { done?: boolean }) => void
-  toggleTodo: (id: string) => void
-  deleteTodo: (id: string) => void
+  addTask: (draft: TaskDraft) => string
+  updateTask: (id: string, patch: Partial<TaskDraft> & { done?: boolean }) => void
+  toggleTask: (id: string) => void
+  deleteTask: (id: string) => void
   setLocalCalendarColor: (color: string) => void
   addSubscription: (input: { name: string; url: string; color: string }) => Promise<string>
   updateSubscription: (
@@ -170,6 +207,39 @@ interface AppState {
 
 function uid(): string {
   return crypto.randomUUID()
+}
+
+export interface NoteSection {
+  id: string
+  title: string
+}
+
+/** Google-style tab group colors. */
+export const TAB_GROUP_COLORS = [
+  '#9aa4b2',
+  '#3f8fff',
+  '#ff6b6b',
+  '#ffbe5a',
+  '#2fd066',
+  '#ff6b8a',
+  '#b284ff',
+  '#2fd0e0',
+  '#f98b3f'
+] as const
+
+export interface TabGroup {
+  id: string
+  name: string
+  color: string
+}
+
+/** Drop group assignments for tabs that no longer exist. */
+function pruneTabGroupMap(map: Record<string, string>, keep: Set<string>): Record<string, string> {
+  const next: Record<string, string> = {}
+  for (const [tabId, groupId] of Object.entries(map)) {
+    if (keep.has(tabId)) next[tabId] = groupId
+  }
+  return next
 }
 
 function navTab(kind: NavKey): Tab {
@@ -222,7 +292,15 @@ function pruneHistory(
 
 function blankNote(): Note {
   const now = Date.now()
-  return { id: uid(), title: '', content: '', fileName: '', createdAt: now, updatedAt: now }
+  return {
+    id: uid(),
+    title: '',
+    content: '',
+    fileName: '',
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null
+  }
 }
 
 const initialTab = navTab('home')
@@ -265,10 +343,10 @@ function saveCalendarFile(items: CalendarItem[], set: PersistSet): void {
   })
 }
 
-function saveTodoFile(todos: TodoItem[], set: PersistSet): void {
-  void window.api.vault.writeJson(TODO_FILE, todos).catch((error) => {
-    console.error('[planner] failed to save todo.json', error)
-    set({ plannerError: 'Could not save todo.json.' })
+function saveTaskFile(tasks: TaskItem[], set: PersistSet): void {
+  void window.api.vault.writeJson(TASKS_FILE, tasks).catch((error) => {
+    console.error('[planner] failed to save tasks.json', error)
+    set({ plannerError: 'Could not save tasks.json.' })
   })
 }
 
@@ -286,18 +364,25 @@ export const useAppStore = create<AppState>()(
       coreState: 'idle',
       notes: [],
       noteOrder: [],
+      noteSections: [],
+      noteSection: {},
+      favorites: [],
+      renamingNoteId: null,
       tabs: [initialTab],
       activeTabId: initialTab.id,
       tabRecency: [initialTab.id],
       tabHistory: [initialTab.id],
       historyIndex: 0,
+      tabGroups: [],
+      tabGroup: {},
+      collapsedTabGroups: [],
       query: '',
       vaultPath: null,
       vaultReady: false,
       vaultError: null,
       messages: [],
       calendarItems: [],
-      todos: [],
+      tasks: [],
       subscriptions: [],
       localCalendarColor: CALENDAR_COLORS[0],
       plannerReady: false,
@@ -380,7 +465,9 @@ export const useAppStore = create<AppState>()(
             ...pushHistory(state.tabHistory, state.historyIndex, tab.id)
           }
         }),
-      openNote: (noteId) =>
+      openNote: (noteId) => {
+        // Trashed notes never open; restore them from the Trash section first.
+        if (get().notes.find((n) => n.id === noteId)?.deletedAt) return
         set((state) => {
           const existing = state.tabs.find((t) => t.kind === 'note' && t.noteId === noteId)
           if (existing)
@@ -396,7 +483,108 @@ export const useAppStore = create<AppState>()(
             tabRecency: toFront(state.tabRecency, tab.id),
             ...pushHistory(state.tabHistory, state.historyIndex, tab.id)
           }
+        })
+      },
+      openNoteInCurrentTab: (noteId) => {
+        if (get().notes.find((n) => n.id === noteId)?.deletedAt) return
+        set((state) => {
+          const existing = state.tabs.find((t) => t.kind === 'note' && t.noteId === noteId)
+          if (existing)
+            return {
+              activeTabId: existing.id,
+              tabRecency: toFront(state.tabRecency, existing.id),
+              ...pushHistory(state.tabHistory, state.historyIndex, existing.id)
+            }
+          // Reuse the active note tab instead of spawning tabs on every click.
+          const active = state.tabs.find((t) => t.id === state.activeTabId)
+          if (active && active.kind === 'note') {
+            return {
+              tabs: state.tabs.map((t) =>
+                t.id === active.id && t.kind === 'note' ? { ...t, noteId } : t
+              ),
+              activeTabId: active.id,
+              tabRecency: toFront(state.tabRecency, active.id),
+              ...pushHistory(state.tabHistory, state.historyIndex, active.id)
+            }
+          }
+          const tab = noteTab(noteId)
+          return {
+            tabs: [...state.tabs, tab],
+            activeTabId: tab.id,
+            tabRecency: toFront(state.tabRecency, tab.id),
+            ...pushHistory(state.tabHistory, state.historyIndex, tab.id)
+          }
+        })
+      },
+      openNoteNewTab: (noteId) => {
+        if (get().notes.find((n) => n.id === noteId)?.deletedAt) return ''
+        const tab = noteTab(noteId)
+        set((state) => ({
+          tabs: [...state.tabs, tab],
+          activeTabId: tab.id,
+          tabRecency: toFront(state.tabRecency, tab.id),
+          ...pushHistory(state.tabHistory, state.historyIndex, tab.id)
+        }))
+        return tab.id
+      },
+      createTabGroup: (name?: string, color?: string, tabIds?: string[]) => {
+        const groups = get().tabGroups
+        const group: TabGroup = {
+          id: uid(),
+          name: (name ?? '').trim() || 'New group',
+          color:
+            color && TAB_GROUP_COLORS.includes(color as (typeof TAB_GROUP_COLORS)[number])
+              ? color
+              : TAB_GROUP_COLORS[groups.length % TAB_GROUP_COLORS.length]
+        }
+        set((state) => {
+          const tabGroup = { ...state.tabGroup }
+          for (const tabId of tabIds ?? []) {
+            if (state.tabs.some((t) => t.id === tabId)) tabGroup[tabId] = group.id
+          }
+          return { tabGroups: [...state.tabGroups, group], tabGroup }
+        })
+        return group.id
+      },
+      renameTabGroup: (id, name) =>
+        set((state) => ({
+          tabGroups: state.tabGroups.map((g) =>
+            g.id === id ? { ...g, name: name.trim() || g.name } : g
+          )
+        })),
+      setTabGroupColor: (id, color) => {
+        if (!TAB_GROUP_COLORS.includes(color as (typeof TAB_GROUP_COLORS)[number])) return
+        set((state) => ({
+          tabGroups: state.tabGroups.map((g) => (g.id === id ? { ...g, color } : g))
+        }))
+      },
+      deleteTabGroup: (id) =>
+        set((state) => {
+          const tabGroup: Record<string, string> = {}
+          for (const [tabId, groupId] of Object.entries(state.tabGroup)) {
+            if (groupId !== id) tabGroup[tabId] = groupId
+          }
+          return {
+            tabGroups: state.tabGroups.filter((g) => g.id !== id),
+            tabGroup,
+            collapsedTabGroups: state.collapsedTabGroups.filter((g) => g !== id)
+          }
         }),
+      assignTabToGroup: (tabId, groupId) =>
+        set((state) => {
+          if (!state.tabs.some((t) => t.id === tabId)) return {}
+          if (groupId && !state.tabGroups.some((g) => g.id === groupId)) return {}
+          const tabGroup = { ...state.tabGroup }
+          if (groupId) tabGroup[tabId] = groupId
+          else delete tabGroup[tabId]
+          return { tabGroup }
+        }),
+      toggleTabGroupCollapsed: (id) =>
+        set((state) => ({
+          collapsedTabGroups: state.collapsedTabGroups.includes(id)
+            ? state.collapsedTabGroups.filter((g) => g !== id)
+            : [...state.collapsedTabGroups, id]
+        })),
       closeTab: (id) =>
         set((state) => {
           const index = state.tabs.findIndex((t) => t.id === id)
@@ -414,7 +602,8 @@ export const useAppStore = create<AppState>()(
             activeTabId,
             splitTabId,
             tabRecency: state.tabRecency.filter((t) => keep.has(t)),
-            ...pruneHistory(state.tabHistory, state.historyIndex, keep)
+            ...pruneHistory(state.tabHistory, state.historyIndex, keep),
+            tabGroup: pruneTabGroupMap(state.tabGroup, keep)
           }
         }),
       closeAllTabs: () =>
@@ -424,7 +613,8 @@ export const useAppStore = create<AppState>()(
           splitTabId: null,
           tabRecency: [],
           tabHistory: [],
-          historyIndex: -1
+          historyIndex: -1,
+          tabGroup: {}
         }),
       moveTab: (dragId, targetId, before) =>
         set((state) => {
@@ -455,15 +645,72 @@ export const useAppStore = create<AppState>()(
           if (!before) to += 1
           return { noteOrder: [...without.slice(0, to), dragId, ...without.slice(to)] }
         }),
-      createNote: (title?: string) => {
+      createSection: (title?: string) => {
+        const section: NoteSection = { id: uid(), title: (title ?? '').trim() || 'New section' }
+        set((state) => ({ noteSections: [...state.noteSections, section] }))
+        return section.id
+      },
+      renameSection: (id, title) =>
+        set((state) => ({
+          noteSections: state.noteSections.map((s) =>
+            s.id === id ? { ...s, title: title.trim() || s.title } : s
+          )
+        })),
+      deleteSection: (id) =>
+        set((state) => {
+          const remaining: Record<string, string> = {}
+          for (const [noteId, sectionId] of Object.entries(state.noteSection)) {
+            if (sectionId !== id) remaining[noteId] = sectionId
+          }
+          return {
+            noteSections: state.noteSections.filter((s) => s.id !== id),
+            noteSection: remaining
+          }
+        }),
+      moveSection: (dragId, targetId, before) =>
+        set((state) => {
+          if (dragId === targetId) return {}
+          const from = state.noteSections.findIndex((s) => s.id === dragId)
+          if (from < 0) return {}
+          const dragged = state.noteSections[from]
+          const without = state.noteSections.filter((s) => s.id !== dragId)
+          if (!targetId) return { noteSections: [...without, dragged] }
+          let to = without.findIndex((s) => s.id === targetId)
+          if (to < 0) return { noteSections: [...without, dragged] }
+          if (!before) to += 1
+          return { noteSections: [...without.slice(0, to), dragged, ...without.slice(to)] }
+        }),
+      setNoteSection: (noteId, sectionId) =>
+        set((state) => {
+          if (sectionId && !state.noteSections.some((s) => s.id === sectionId)) return {}
+          const noteSection = { ...state.noteSection }
+          if (sectionId) noteSection[noteId] = sectionId
+          else delete noteSection[noteId]
+          return { noteSection }
+        }),
+      setRenamingNoteId: (renamingNoteId) => set({ renamingNoteId }),
+      toggleFavorite: (noteId) =>
+        set((state) => ({
+          favorites: state.favorites.includes(noteId)
+            ? state.favorites.filter((id) => id !== noteId)
+            : [...state.favorites, noteId]
+        })),
+      createNote: (title?: string, sectionId?: string | null) => {
         const note = { ...blankNote(), title: (title ?? '').trim() }
         const tab = noteTab(note.id)
         set((state) => {
           const taken = new Set(state.notes.map((n) => n.fileName))
           const fileName = uniqueFileName(noteFileBase(note.title), taken)
+          // Filing straight into a section pins the note at the top of it:
+          // new ids render first, and the section filter keeps the rest out.
+          const noteSection = { ...state.noteSection }
+          if (sectionId && state.noteSections.some((s) => s.id === sectionId)) {
+            noteSection[note.id] = sectionId
+          }
           return {
             notes: [{ ...note, fileName }, ...state.notes],
             noteOrder: [note.id, ...state.noteOrder.filter((id) => id !== note.id)],
+            noteSection,
             tabs: [...state.tabs, tab],
             activeTabId: tab.id,
             tabRecency: toFront(state.tabRecency, tab.id),
@@ -477,6 +724,8 @@ export const useAppStore = create<AppState>()(
             set({ vaultError: `Could not write ${created.fileName}.` })
           })
         }
+        // The sidebar picks this up and opens an inline rename field.
+        set({ renamingNoteId: note.id })
         return note.id
       },
       updateNote: (id, patch) =>
@@ -486,8 +735,63 @@ export const useAppStore = create<AppState>()(
           )
         })),
       deleteNote: (id) => {
+        // Trash, not destroy: the record keeps its order/section slots so
+        // restore lands it back in place. initVault auto-purges trash older
+        // than 30 days; destroyNote() removes immediately.
         const removed = get().notes.find((n) => n.id === id)
-        const removeFile = Boolean(removed?.fileName && get().vaultReady)
+        if (!removed || removed.deletedAt) return
+        const removeFile = Boolean(removed.fileName && get().vaultReady)
+        set((state) => {
+          const notes = state.notes.map((n) => (n.id === id ? { ...n, deletedAt: Date.now() } : n))
+          const tabs = state.tabs.filter((t) => !(t.kind === 'note' && t.noteId === id))
+          const activeTabId = tabs.some((t) => t.id === state.activeTabId)
+            ? state.activeTabId
+            : (tabs[0]?.id ?? null)
+          const splitTabId =
+            state.splitTabId && tabs.some((t) => t.id === state.splitTabId)
+              ? state.splitTabId
+              : null
+          const kept = new Set(tabs.map((t) => t.id))
+          return {
+            notes,
+            tabs,
+            activeTabId,
+            splitTabId,
+            tabRecency: state.tabRecency.filter((t) => kept.has(t)),
+            ...pruneHistory(state.tabHistory, state.historyIndex, kept),
+            tabGroup: pruneTabGroupMap(state.tabGroup, kept)
+          }
+        })
+        if (removeFile && removed) {
+          void window.api.vault.remove(removed.fileName).catch((error) => {
+            console.error(`[vault] failed to remove ${removed.fileName}`, error)
+          })
+        }
+      },
+      restoreNote: (id) => {
+        const note = get().notes.find((n) => n.id === id)
+        if (!note?.deletedAt) return
+        const taken = new Set(
+          get()
+            .notes.filter((n) => n.id !== id)
+            .map((n) => n.fileName)
+        )
+        const fileName = uniqueFileName(note.fileName || noteFileBase(note.title), taken)
+        set((state) => ({
+          notes: state.notes.map((n) => (n.id === id ? { ...n, deletedAt: null, fileName } : n))
+        }))
+        if (get().vaultReady) {
+          void window.api.vault.write(fileName, note.content).catch((error) => {
+            console.error(`[vault] failed to restore ${fileName}`, error)
+            set({ vaultError: `Could not restore ${fileName}.` })
+          })
+        }
+      },
+      destroyNote: (id) => {
+        // Permanent: drops the record, order/section/favorite slots, and tabs.
+        const removed = get().notes.find((n) => n.id === id)
+        if (!removed) return
+        const removeFile = Boolean(removed.fileName && get().vaultReady)
         set((state) => {
           const notes = state.notes.filter((n) => n.id !== id)
           const noteOrder = state.noteOrder.filter((noteId) => noteId !== id)
@@ -500,6 +804,8 @@ export const useAppStore = create<AppState>()(
               ? state.splitTabId
               : null
           const kept = new Set(tabs.map((t) => t.id))
+          const noteSection = { ...state.noteSection }
+          delete noteSection[id]
           return {
             notes,
             noteOrder,
@@ -507,13 +813,14 @@ export const useAppStore = create<AppState>()(
             activeTabId,
             splitTabId,
             tabRecency: state.tabRecency.filter((t) => kept.has(t)),
-            ...pruneHistory(state.tabHistory, state.historyIndex, kept)
+            ...pruneHistory(state.tabHistory, state.historyIndex, kept),
+            noteSection,
+            favorites: state.favorites.filter((fav) => fav !== id),
+            tabGroup: pruneTabGroupMap(state.tabGroup, kept)
           }
         })
         if (removeFile && removed) {
-          void window.api.vault.remove(removed.fileName).catch((error) => {
-            console.error(`[vault] failed to remove ${removed.fileName}`, error)
-          })
+          void window.api.vault.remove(removed.fileName).catch(() => {})
         }
       },
       initVault: (force = false) => {
@@ -566,20 +873,32 @@ export const useAppStore = create<AppState>()(
                     content: entry.content,
                     fileName: entry.fileName,
                     createdAt: Math.round(entry.birthtimeMs) || Date.now(),
-                    updatedAt: Math.round(entry.mtimeMs) || Date.now()
+                    updatedAt: Math.round(entry.mtimeMs) || Date.now(),
+                    deletedAt: null
                   })
                 }
                 taken.add(entry.fileName)
               }
               // Notes missing on disk (new, or pre-vault) get written out.
+              // Trashed notes stay fileless — their files were removed on trash.
               for (const note of state.notes) {
+                if (note.deletedAt) continue
                 if (disk.some((entry) => entry.fileName === note.fileName)) continue
                 const fileName = uniqueFileName(note.fileName || noteFileBase(note.title), taken)
                 taken.add(fileName)
                 notes.push(fileName === note.fileName ? note : { ...note, fileName })
                 pendingWrites.push({ id: note.id, fileName })
               }
-              const noteIds = new Set(notes.map((n) => n.id))
+              // Trash older than 30 days is destroyed, not restored.
+              const retained = notes.filter(
+                (n) => !n.deletedAt || Date.now() - n.deletedAt < TRASH_RETENTION_MS
+              )
+              if (retained.length !== notes.length) {
+                console.info(
+                  `[vault] purged ${notes.length - retained.length} trashed notes (30d+)`
+                )
+              }
+              const noteIds = new Set(retained.map((n) => n.id))
               const tabs = state.tabs.filter(
                 (tab) => tab.kind !== 'note' || noteIds.has(tab.noteId)
               )
@@ -599,12 +918,12 @@ export const useAppStore = create<AppState>()(
               // notes (imports, pre-vault notes) up top by recency.
               const keptOrder = state.noteOrder.filter((id) => noteIds.has(id))
               const keptSet = new Set(keptOrder)
-              const unpositioned = notes
+              const unpositioned = retained
                 .filter((n) => !keptSet.has(n.id))
                 .sort((a, b) => b.updatedAt - a.updatedAt)
                 .map((n) => n.id)
               return {
-                notes,
+                notes: retained,
                 noteOrder: [...unpositioned, ...keptOrder],
                 tabs: withTabs,
                 activeTabId,
@@ -612,6 +931,7 @@ export const useAppStore = create<AppState>()(
                   ...state.tabRecency.filter((id) => withTabIds.has(id)),
                   ...withTabs.map((t) => t.id).filter((id) => !state.tabRecency.includes(id))
                 ],
+                tabGroup: pruneTabGroupMap(state.tabGroup, withTabIds),
                 tabHistory: keptHistory.tabHistory,
                 historyIndex: keptHistory.historyIndex
               }
@@ -649,7 +969,7 @@ export const useAppStore = create<AppState>()(
         const state = get()
         if (!state.vaultReady) return
         const note = state.notes.find((n) => n.id === id)
-        if (!note) return
+        if (!note || note.deletedAt) return
         try {
           const taken = new Set(state.notes.filter((n) => n.id !== id).map((n) => n.fileName))
           let fileName = note.fileName || uniqueFileName(noteFileBase(note.title), taken)
@@ -701,41 +1021,55 @@ export const useAppStore = create<AppState>()(
       clearChat: () => set({ messages: [] }),
       loadPlanner: async () => {
         try {
-          const [calendarRaw, todoRaw, calendarsRaw] = await Promise.all([
+          const [calendarRaw, tasksRaw, legacyRaw, calendarsRaw] = await Promise.all([
             window.api.vault.readJson(CALENDAR_FILE),
+            window.api.vault.readJson(TASKS_FILE),
             window.api.vault.readJson(TODO_FILE),
             window.api.vault.readJson(CALENDARS_FILE)
           ])
-          const { events, migratedTodos } = parseCalendarData(calendarRaw)
-          const byId = new Map(parseTodoItems(todoRaw).map((todo) => [todo.id, todo]))
+          const { events, migratedTasks } = parseCalendarData(calendarRaw)
+          const byId = new Map(parseTaskItems(tasksRaw).map((task) => [task.id, task]))
           let migrated = 0
-          for (const todo of migratedTodos) {
-            if (!byId.has(todo.id)) {
-              byId.set(todo.id, todo)
+          for (const task of migratedTasks) {
+            if (!byId.has(task.id)) {
+              byId.set(task.id, task)
               migrated += 1
             }
           }
-          const todos = [...byId.values()]
+          // One-time move from the pre-rename `todo.json` store.
+          let legacyMigrated = 0
+          for (const task of parseTaskItems(legacyRaw)) {
+            if (!byId.has(task.id)) {
+              byId.set(task.id, task)
+              legacyMigrated += 1
+            }
+          }
+          const tasks = [...byId.values()]
           const subscriptions = parseSubscriptions(calendarsRaw)
           set({
             calendarItems: events,
-            todos,
+            tasks,
             subscriptions,
             plannerReady: true,
             plannerError: null
           })
           // Tasks used to live in calendar.json; persist the split once.
           if (migrated > 0) {
-            await Promise.all([
-              window.api.vault.writeJson(CALENDAR_FILE, events),
-              window.api.vault.writeJson(TODO_FILE, todos)
-            ])
-            console.info(`[planner] migrated ${migrated} calendar tasks into todo.json`)
+            await window.api.vault.writeJson(CALENDAR_FILE, events)
+            console.info(`[planner] migrated ${migrated} calendar tasks into tasks.json`)
+          }
+          if (migrated > 0 || legacyMigrated > 0) {
+            await window.api.vault.writeJson(TASKS_FILE, tasks)
+          }
+          if (legacyMigrated > 0) {
+            // Retire the legacy file so its items can never resurrect.
+            await window.api.vault.writeJson(TODO_FILE, [])
+            console.info(`[planner] migrated ${legacyMigrated} tasks from todo.json`)
           }
           void get().refreshAllSubscriptions()
         } catch (error) {
           console.error('[planner] failed to load planner data', error)
-          set({ plannerError: 'Could not load calendar/todo data.', plannerReady: true })
+          set({ plannerError: 'Could not load calendar/task data.', plannerReady: true })
         }
       },
       addCalendarItem: (draft) => {
@@ -766,18 +1100,17 @@ export const useAppStore = create<AppState>()(
         set({ calendarItems: items, plannerError: null })
         saveCalendarFile(items, set)
       },
-      addTodo: (draft) => {
-        const item = todoItemFromDraft(uid(), draft, false, Date.now())
-        const todos = [item, ...get().todos]
-        set({ todos, plannerError: null })
-        saveTodoFile(todos, set)
+      addTask: (draft) => {
+        const item = taskItemFromDraft(uid(), draft, false, Date.now())
+        const tasks = [item, ...get().tasks]
+        set({ tasks, plannerError: null })
+        saveTaskFile(tasks, set)
         return item.id
       },
-      updateTodo: (id, patch) => {
-        const current = get().todos.find((item) => item.id === id)
+      updateTask: (id, patch) => {
+        const current = get().tasks.find((item) => item.id === id)
         if (!current) return
-        const draft: TodoDraft = {
-          kind: patch.kind ?? current.kind,
+        const draft: TaskDraft = {
           title: patch.title ?? current.title,
           notes: patch.notes ?? current.notes,
           location: patch.location ?? current.location,
@@ -785,22 +1118,22 @@ export const useAppStore = create<AppState>()(
           time: patch.time !== undefined ? patch.time : current.time
         }
         const done = patch.done ?? current.status === 'completed'
-        const todos = get().todos.map((item) =>
+        const tasks = get().tasks.map((item) =>
           item.id === id
-            ? todoItemFromDraft(id, draft, done, Date.now(), { createdAt: item.createdAt })
+            ? taskItemFromDraft(id, draft, done, Date.now(), { createdAt: item.createdAt })
             : item
         )
-        set({ todos, plannerError: null })
-        saveTodoFile(todos, set)
+        set({ tasks, plannerError: null })
+        saveTaskFile(tasks, set)
       },
-      toggleTodo: (id) => {
-        const current = get().todos.find((item) => item.id === id)
-        if (current) get().updateTodo(id, { done: current.status !== 'completed' })
+      toggleTask: (id) => {
+        const current = get().tasks.find((item) => item.id === id)
+        if (current) get().updateTask(id, { done: current.status !== 'completed' })
       },
-      deleteTodo: (id) => {
-        const todos = get().todos.filter((item) => item.id !== id)
-        set({ todos, plannerError: null })
-        saveTodoFile(todos, set)
+      deleteTask: (id) => {
+        const tasks = get().tasks.filter((item) => item.id !== id)
+        set({ tasks, plannerError: null })
+        saveTaskFile(tasks, set)
       },
       setLocalCalendarColor: (localCalendarColor) => set({ localCalendarColor }),
       addSubscription: async ({ name, url, color }) => {
@@ -886,6 +1219,12 @@ export const useAppStore = create<AppState>()(
       partialize: (state) => ({
         notes: state.notes,
         noteOrder: state.noteOrder,
+        noteSections: state.noteSections,
+        noteSection: state.noteSection,
+        favorites: state.favorites,
+        tabGroups: state.tabGroups,
+        tabGroup: state.tabGroup,
+        collapsedTabGroups: state.collapsedTabGroups,
         tabs: state.tabs,
         activeTabId: state.activeTabId,
         tabRecency: state.tabRecency,
@@ -913,6 +1252,12 @@ export const useAppStore = create<AppState>()(
             AppState,
             | 'notes'
             | 'noteOrder'
+            | 'noteSections'
+            | 'noteSection'
+            | 'favorites'
+            | 'tabGroups'
+            | 'tabGroup'
+            | 'collapsedTabGroups'
             | 'tabs'
             | 'activeTabId'
             | 'tabRecency'
@@ -935,9 +1280,13 @@ export const useAppStore = create<AppState>()(
         >
         const notes = saved.notes ?? []
         const noteIds = new Set(notes.map((n) => n.id))
-        const restored = (saved.tabs ?? []).filter(
-          (tab) => tab.kind !== 'note' || noteIds.has(tab.noteId)
-        )
+        const restored = (saved.tabs ?? [])
+          .map((tab): Tab => {
+            // Pre-rename sessions saved the task list as kind 'todo'.
+            if ((tab as { kind?: string }).kind === 'todo') return { id: tab.id, kind: 'tasks' }
+            return tab
+          })
+          .filter((tab) => tab.kind !== 'note' || noteIds.has(tab.noteId))
         const tabs = restored.length > 0 ? restored : [navTab('home')]
         const activeTabId = tabs.some((t) => t.id === saved.activeTabId)
           ? (saved.activeTabId as string)
@@ -956,6 +1305,30 @@ export const useAppStore = create<AppState>()(
         const historyIndex = pruned.tabHistory.length > 0 ? pruned.historyIndex : 0
         const messages = (saved.messages ?? []).slice(-MAX_CHAT_MESSAGES)
         const noteOrder = (saved.noteOrder ?? []).filter((id) => noteIds.has(id))
+        // Sections survive restarts; drop mappings for notes or sections
+        // that no longer exist so orphans render ungrouped.
+        const noteSections = (saved.noteSections ?? []).filter(
+          (s) => s && typeof s.id === 'string' && typeof s.title === 'string'
+        )
+        const sectionIds = new Set(noteSections.map((s) => s.id))
+        const noteSection: Record<string, string> = {}
+        for (const [noteId, sectionId] of Object.entries(saved.noteSection ?? {})) {
+          if (noteIds.has(noteId) && sectionIds.has(sectionId)) noteSection[noteId] = sectionId
+        }
+        const favorites = (saved.favorites ?? []).filter((id) => noteIds.has(id))
+        const tabGroups = (saved.tabGroups ?? []).filter(
+          (g) =>
+            g &&
+            typeof g.id === 'string' &&
+            typeof g.name === 'string' &&
+            typeof g.color === 'string'
+        )
+        const groupIds = new Set(tabGroups.map((g) => g.id))
+        const tabGroup: Record<string, string> = {}
+        for (const [tabId, groupId] of Object.entries(saved.tabGroup ?? {})) {
+          if (tabIds.has(tabId) && groupIds.has(groupId)) tabGroup[tabId] = groupId
+        }
+        const collapsedTabGroups = (saved.collapsedTabGroups ?? []).filter((id) => groupIds.has(id))
         // Never pop the bubble for history that predates this launch: seed
         // "seen" at the newest restored SeeMO message.
         let lastSeenAgentId = saved.lastSeenAgentId ?? null
@@ -968,6 +1341,12 @@ export const useAppStore = create<AppState>()(
           ...current,
           notes,
           noteOrder,
+          noteSections,
+          noteSection,
+          favorites,
+          tabGroups,
+          tabGroup,
+          collapsedTabGroups,
           tabs,
           activeTabId,
           tabRecency,

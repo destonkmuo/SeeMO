@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { LOCAL_CALENDAR_ID, TODO_KIND_COLOR, type CalendarItem } from '../planner'
+import { LOCAL_CALENDAR_ID, TASK_COLOR, type CalendarItem } from '../planner'
 import { useAppStore } from '../store/appStore'
 import {
   CALENDAR_COLORS,
@@ -10,7 +10,7 @@ import {
   formatDayLabel,
   formatTime,
   fromISODate,
-  isTodoDone,
+  isTaskDone,
   itemEndTime,
   itemStartTime,
   layoutDayColumns,
@@ -31,13 +31,12 @@ import {
   CalendarIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  ListTodoIcon,
   PlusIcon,
   TaskIcon,
   XIcon
 } from '../components/icons'
 
-type EntryKind = 'event' | 'task' | 'todo'
+type EntryKind = 'event' | 'task'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTH_CELL_LIMIT = 3
@@ -68,7 +67,7 @@ interface SourceView {
 
 function Calendar(): React.JSX.Element {
   const calendarItems = useAppStore((state) => state.calendarItems)
-  const todos = useAppStore((state) => state.todos)
+  const tasks = useAppStore((state) => state.tasks)
   const subscriptions = useAppStore((state) => state.subscriptions)
   const localCalendarColor = useAppStore((state) => state.localCalendarColor)
   const plannerReady = useAppStore((state) => state.plannerReady)
@@ -85,7 +84,7 @@ function Calendar(): React.JSX.Element {
   const [hidden, setHidden] = useState<Set<string>>(new Set())
 
   const today = todayISO()
-  const openCount = todos.filter((t) => !isTodoDone(t)).length
+  const openCount = tasks.filter((t) => !isTaskDone(t)).length
 
   const sources: SourceView[] = useMemo(
     () => [
@@ -160,20 +159,20 @@ function Calendar(): React.JSX.Element {
       }
     }
 
-    for (const todo of todos) {
-      if (!todo.due) continue
-      push(todo.due, {
-        key: `todo-${todo.id}`,
-        title: todo.title || 'Untitled',
-        kind: todo.kind,
-        done: isTodoDone(todo),
-        color: TODO_KIND_COLOR[todo.kind],
-        startMin: todo.time ? minutesOf(todo.time) : null,
+    for (const task of tasks) {
+      if (!task.due) continue
+      push(task.due, {
+        key: `task-${task.id}`,
+        title: task.title || 'Untitled',
+        kind: 'task',
+        done: isTaskDone(task),
+        color: TASK_COLOR,
+        startMin: task.time ? minutesOf(task.time) : null,
         endMin: null,
-        location: todo.location,
+        location: task.location,
         recurring: false,
         readOnly: false,
-        open: () => setDialog({ mode: 'edit-todo', item: todo })
+        open: () => setDialog({ mode: 'edit-task', item: task })
       })
     }
 
@@ -186,7 +185,7 @@ function Calendar(): React.JSX.Element {
       })
     }
     return map
-  }, [sources, calendarItems, subscriptions, todos, rangeStart, rangeEnd, hidden])
+  }, [sources, calendarItems, subscriptions, tasks, rangeStart, rangeEnd, hidden])
 
   const configured = sources.filter((s) => s.id !== LOCAL_CALENDAR_ID)
 
@@ -298,11 +297,11 @@ function Calendar(): React.JSX.Element {
           <button
             type="button"
             className="btn btn--ghost"
-            title="Open the todo list"
-            onClick={() => openNav('todo')}
+            title="Open the task list"
+            onClick={() => openNav('tasks')}
           >
-            <ListTodoIcon size={15} />
-            Todos{openCount > 0 ? ` (${openCount})` : ''}
+            <TaskIcon size={15} />
+            Tasks{openCount > 0 ? ` (${openCount})` : ''}
           </button>
           <button
             type="button"
@@ -350,12 +349,8 @@ function Calendar(): React.JSX.Element {
             </span>
           ))}
           <span className="cal__legend-item">
-            <span className="cal__legend-dot" style={{ background: TODO_KIND_COLOR.task }} />
+            <span className="cal__legend-dot" style={{ background: TASK_COLOR }} />
             Task
-          </span>
-          <span className="cal__legend-item">
-            <span className="cal__legend-dot" style={{ background: TODO_KIND_COLOR.todo }} />
-            Todo
           </span>
         </p>
       )}
@@ -547,7 +542,6 @@ function entryClass(entry: DayEntry): string {
 
 function EntryIcon({ kind }: { kind: EntryKind }): React.JSX.Element {
   if (kind === 'task') return <TaskIcon size={11} />
-  if (kind === 'todo') return <ListTodoIcon size={11} />
   return <CalendarIcon size={11} />
 }
 

@@ -581,7 +581,7 @@ body {
   background: rgba(255, 255, 255, 0.02);
 }
 
-/* "Today" rows: compact event/todo lines under the agenda header. */
+/* "Today" rows: compact event/task lines under the agenda header. */
 .sidebar__today-head {
   padding: 0 2px 6px;
 }
@@ -619,7 +619,7 @@ body {
   margin-top: 0;
 }
 
-/* "Today" rows: compact event/todo lines under the agenda header. */
+/* "Today" rows: compact event/task lines under the agenda header. */
 .sidebar__today-head .sidebar__section-head--toggle {
   width: auto;
   flex: 1;
@@ -763,6 +763,134 @@ button.sidebar__today-row:hover {
   padding: 0;
 }
 
+/* Custom note sections: draggable divider headers grouping roots. */
+.sidebar__section-block {
+  margin-top: 12px;
+}
+
+.sidebar__section-block:first-of-type {
+  margin-top: 8px;
+}
+
+.sidebar__divider {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  cursor: grab;
+}
+
+.sidebar__divider:active {
+  cursor: grabbing;
+}
+
+.sidebar__divider--dragging {
+  opacity: 0.35;
+}
+
+.sidebar__divider--drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.sidebar__divider--drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.sidebar__divider.is-note-target {
+  background: var(--hover);
+}
+
+.sidebar__divider-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ev-c-text-3);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar__divider-main:hover {
+  background: var(--hover);
+  color: var(--ev-c-text-1);
+}
+
+.sidebar__divider-main .sidebar__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sidebar__divider .sidebar__icon-btn {
+  opacity: 0;
+}
+
+.sidebar__divider:hover .sidebar__icon-btn,
+.sidebar__divider:focus-within .sidebar__icon-btn {
+  opacity: 1;
+}
+
+.sidebar__divider-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ev-c-text-1);
+  font: inherit;
+  font-size: 12.5px;
+  user-select: text;
+}
+
+/* Explicit section-maker: what the divider button does, in words. */
+.sidebar__new-section {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ev-c-text-3);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar__new-section:hover {
+  color: var(--ev-c-text-1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.sidebar__new-section-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.sidebar__new-section-text strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sidebar__new-section-text small {
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
 .sidebar__note {
   border-radius: 6px;
   cursor: grab;
@@ -785,8 +913,255 @@ button.sidebar__today-row:hover {
 }
 
 .sidebar__row--note {
+  position: relative;
   padding: 0;
   padding-right: 2px;
+}
+
+/* Inline note rename field (also opened for every newly created page). */
+.sidebar__row-input {
+  flex: 1;
+  min-width: 0;
+  margin: 3px 0;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ev-c-text-1);
+  font: inherit;
+  font-size: 13px;
+  user-select: text;
+}
+
+.sidebar__fav-mark {
+  flex: none;
+  color: #ffbe5a;
+}
+
+.sidebar__fav-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #ffbe5a;
+}
+
+/* Row action menu (rename / favorite / new tab / delete). */
+.note-menu__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: transparent;
+}
+
+.note-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #242424;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+/* Single global instance: cursor-anchored, above the backdrop. */
+.note-menu--fixed {
+  position: fixed;
+  z-index: 70;
+}
+
+/* Tab-bar context menus reuse the note-menu look. */
+.tabmenu {
+  position: fixed;
+  z-index: 70;
+}
+
+.tabmenu__label {
+  margin: 6px 10px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ev-c-text-3);
+}
+
+.tabmenu__dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: 0;
+}
+
+.tabmenu__swatches {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  gap: 4px;
+  padding: 6px 10px 8px;
+}
+
+.tabmenu__swatch {
+  width: 18px;
+  height: 18px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.tabmenu__swatch:hover {
+  transform: scale(1.15);
+}
+
+.tabmenu__swatch.is-active {
+  border-color: #fff;
+}
+
+/* Google-style tab groups: an outlined cluster per group. */
+.tabgroup {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 3px 6px 0;
+  border: 1px solid color-mix(in srgb, var(--group-color) 55%, transparent);
+  border-bottom: none;
+  border-radius: 9px 9px 0 0;
+  margin-bottom: -1px;
+  padding-bottom: 1px;
+}
+
+.tabgroup__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  max-width: 170px;
+  margin-bottom: 4px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--group-color) 22%, transparent);
+  color: var(--ev-c-text-1);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tabgroup__head:hover {
+  background: color-mix(in srgb, var(--group-color) 35%, transparent);
+}
+
+.tabgroup__dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--group-color);
+}
+
+.tabgroup__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabgroup__count {
+  flex: none;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ev-c-text-3);
+}
+
+.tabgroup__input {
+  width: 110px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 5px;
+  outline: none;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--ev-c-text-1);
+  font: inherit;
+  font-size: 12px;
+  user-select: text;
+}
+
+.note-menu__item {
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ev-c-text-2);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.note-menu__item:hover {
+  background: var(--hover-strong);
+  color: var(--ev-c-text-1);
+}
+
+.note-menu__item--danger {
+  color: var(--danger);
+}
+
+.note-menu__item--danger:hover {
+  background: rgba(255, 80, 80, 0.14);
+  color: var(--danger);
+}
+
+/* Trash: destroyed automatically 30 days after trashing. */
+.sidebar__trash-head {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.sidebar__trash-head:hover {
+  background: var(--hover);
+}
+
+.sidebar__trash-head .sidebar__section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidebar__trash-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--ev-c-text-3);
+  font-size: 12.5px;
+}
+
+.sidebar__trash-row:hover {
+  background: var(--hover);
+  color: var(--ev-c-text-2);
+}
+
+.sidebar__trash-row .sidebar__icon-btn {
+  opacity: 0;
+}
+
+.sidebar__trash-row:hover .sidebar__icon-btn {
+  opacity: 1;
+}
+
+.sidebar__trash-days {
+  flex: none;
+  font-size: 11px;
+  color: var(--ev-c-text-3);
 }
 
 .sidebar__row--note:hover {
@@ -939,6 +1314,29 @@ button.sidebar__today-row:hover {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+/* One-line capability cheat-sheet pinned under the document. */
+.note__hints {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  justify-content: center;
+  padding: 8px 20px 12px;
+  font-size: 11px;
+  color: var(--ev-c-text-3);
+  user-select: none;
+}
+
+.note__hints kbd {
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  font-family: inherit;
+  font-size: 10.5px;
+  color: var(--ev-c-text-2);
 }
 
 .note__doc {
@@ -2470,46 +2868,85 @@ button.cal-week__day:hover {
   opacity: 0.7;
 }
 
-/* -------------------------------------------------------------------- todo */
+/* ------------------------------------------------------------------- tasks */
 
-.todo {
+.task {
   flex: 1;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
 }
 
-.todo__inner {
+.task__inner {
   max-width: 760px;
   margin: 0 auto;
   padding: 40px 48px 80px;
 }
 
-.todo__header {
+.task__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
 }
 
-.todo__title {
+.task__title {
   font-size: 32px;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--ev-c-text-1);
 }
 
-.todo__subtitle {
+.task__subtitle {
   margin-top: 6px;
   font-size: 14px;
   color: var(--ev-c-text-2);
 }
 
-.todo-group {
+/* Timeline: dated tasks run down a vertical rail, grouped by day. */
+.task-timeline {
   margin-top: 28px;
 }
 
-.todo-group__title {
+.task-day {
+  position: relative;
+  padding-left: 24px;
+}
+
+.task-day::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 30px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.task-day:last-child::before {
+  bottom: auto;
+  height: calc(100% - 40px);
+}
+
+.task-day__title {
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ev-c-text-3);
+}
+
+.task-day--overdue .task-day__title {
+  color: var(--danger);
+}
+
+.task-group {
+  margin-top: 28px;
+}
+
+.task-group__title {
   margin-bottom: 8px;
   font-size: 11px;
   font-weight: 600;
@@ -2518,11 +2955,29 @@ button.cal-week__day:hover {
   color: var(--ev-c-text-3);
 }
 
-.todo-group--overdue .todo-group__title {
-  color: var(--danger);
+.task-group__hint {
+  margin: -4px 0 6px;
+  font-size: 12px;
+  color: var(--ev-c-text-3);
 }
 
-.todo-row {
+/* General (undated) tasks read smaller than the timeline. */
+.task-group--general .task-row {
+  padding: 6px 10px;
+}
+
+.task-group--general .task-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.task-group--general .task-meta,
+.task-group--general .task-desc {
+  font-size: 11.5px;
+}
+
+.task-row {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -2530,11 +2985,27 @@ button.cal-week__day:hover {
   border-radius: 9px;
 }
 
-.todo-row:hover {
+.task-timeline .task-row::before {
+  content: '';
+  position: absolute;
+  left: -21px;
+  top: 17px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #b284ff;
+  box-shadow: 0 0 0 3px var(--main-bg);
+}
+
+.task-day--overdue .task-row::before {
+  background: var(--danger);
+}
+
+.task-row:hover {
   background: var(--hover);
 }
 
-.todo-check {
+.task-check {
   flex: none;
   border: none;
   background: transparent;
@@ -2542,7 +3013,7 @@ button.cal-week__day:hover {
   cursor: pointer;
 }
 
-.todo-check__box {
+.task-check__box {
   display: block;
   width: 17px;
   height: 17px;
@@ -2553,11 +3024,11 @@ button.cal-week__day:hover {
     border-color 120ms ease;
 }
 
-.todo-check:hover .todo-check__box {
+.task-check:hover .task-check__box {
   border-color: var(--ev-c-text-1);
 }
 
-.todo-row.is-done .todo-check__box {
+.task-row.is-done .task-check__box {
   background: var(--accent);
   border-color: var(--accent);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23101418' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
@@ -2566,7 +3037,7 @@ button.cal-week__day:hover {
   background-repeat: no-repeat;
 }
 
-.todo-main {
+.task-main {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -2581,23 +3052,23 @@ button.cal-week__day:hover {
   cursor: pointer;
 }
 
-.todo-title {
+.task-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--ev-c-text-1);
 }
 
-.todo-row.is-done .todo-title {
+.task-row.is-done .task-title {
   color: var(--ev-c-text-3);
   text-decoration: line-through;
 }
 
-.todo-meta {
+.task-meta {
   font-size: 12px;
   color: var(--ev-c-text-3);
 }
 
-.todo-desc {
+.task-desc {
   font-size: 12.5px;
   color: var(--ev-c-text-2);
   display: -webkit-box;
@@ -3159,23 +3630,6 @@ select.dlg__input {
   }
 }
 
-/* Kind marker on task/todo rows (they share one list). */
-.todo-kind {
-  display: inline-flex;
-  align-items: center;
-  margin-right: 6px;
-  vertical-align: -2px;
-  color: var(--ev-c-text-3);
-}
-
-.todo-kind--task {
-  color: #b284ff;
-}
-
-.todo-kind--todo {
-  color: #ffbe5a;
-}
-
 /* ------------------------------------------- custom window chrome (macOS) */
 
 /* Native title bar is hidden: the tab bar doubles as the drag strip, and the
@@ -3515,6 +3969,66 @@ select.dlg__input {
 .codeblock__pre code {
   padding: 0;
   background: transparent;
+}
+
+/* High-contrast token colors over the dark block, scoped so the bundled
+   hljs theme never leaks elsewhere. Keywords read first, then names. */
+.codeblock .hljs {
+  background: transparent;
+  color: #e6edf3;
+}
+
+.codeblock .hljs-keyword,
+.codeblock .hljs-selector-tag,
+.codeblock .hljs-doctag,
+.codeblock .hljs-template-tag {
+  color: #ff7b72;
+}
+
+.codeblock .hljs-string,
+.codeblock .hljs-regexp,
+.codeblock .hljs-meta .hljs-string {
+  color: #a5d6ff;
+}
+
+.codeblock .hljs-number,
+.codeblock .hljs-literal {
+  color: #79c0ff;
+}
+
+.codeblock .hljs-title,
+.codeblock .hljs-title.function_,
+.codeblock .hljs-section {
+  color: #d2a8ff;
+}
+
+.codeblock .hljs-variable,
+.codeblock .hljs-template-variable,
+.codeblock .hljs-attr,
+.codeblock .hljs-attribute {
+  color: #7ee787;
+}
+
+.codeblock .hljs-built_in,
+.codeblock .hljs-symbol,
+.codeblock .hljs-bullet,
+.codeblock .hljs-link,
+.codeblock .hljs-type {
+  color: #ffa657;
+}
+
+.codeblock .hljs-comment,
+.codeblock .hljs-quote {
+  color: #8b949e;
+  font-style: italic;
+}
+
+.codeblock .hljs-emphasis {
+  font-style: italic;
+}
+
+.codeblock .hljs-strong {
+  font-weight: 700;
 }
 
 .codeblock__console {

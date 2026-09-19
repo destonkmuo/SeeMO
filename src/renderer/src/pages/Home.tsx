@@ -5,7 +5,7 @@ import {
   CalendarIcon,
   FileTextIcon,
   GraphIcon,
-  ListTodoIcon,
+  TaskIcon,
   PlusIcon,
   SettingsIcon
 } from '../components/icons'
@@ -35,10 +35,10 @@ const CAPABILITIES: Capability[] = [
     icon: CalendarIcon
   },
   {
-    key: 'todo',
-    title: 'Tasks & Todos',
+    key: 'tasks',
+    title: 'Tasks',
     body: 'One shared list with due dates, times, and checkboxes.',
-    icon: ListTodoIcon
+    icon: TaskIcon
   },
   {
     key: 'graph',
@@ -62,7 +62,7 @@ const CAPABILITIES: Capability[] = [
 
 function Home(): React.JSX.Element {
   const notes = useAppStore((state) => state.notes)
-  const todos = useAppStore((state) => state.todos)
+  const tasks = useAppStore((state) => state.tasks)
   const calendarItems = useAppStore((state) => state.calendarItems)
   const subscriptions = useAppStore((state) => state.subscriptions)
   const vaultPath = useAppStore((state) => state.vaultPath)
@@ -73,11 +73,11 @@ function Home(): React.JSX.Element {
 
   const today = todayISO()
 
-  const openTodos = useMemo(() => todos.filter((t) => t.status !== 'completed'), [todos])
+  const openTasks = useMemo(() => tasks.filter((t) => t.status !== 'completed'), [tasks])
 
-  const dueTodos = useMemo(
+  const dueTasks = useMemo(
     () =>
-      openTodos
+      openTasks
         .filter((t) => t.due !== null && t.due <= today)
         .sort((a, b) => {
           const left = (a.due ?? '') + (a.time ?? '')
@@ -85,7 +85,7 @@ function Home(): React.JSX.Element {
           return left < right ? -1 : 1
         })
         .slice(0, 4),
-    [openTodos, today]
+    [openTasks, today]
   )
 
   const todaysEvents = useMemo(() => {
@@ -112,13 +112,13 @@ function Home(): React.JSX.Element {
   }, [notes])
 
   const recent = notes
-    .slice()
+    .filter((note) => !note.deletedAt)
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, 6)
 
   const stats: { value: string; label: string }[] = [
     { value: String(notes.length), label: notes.length === 1 ? 'note' : 'notes' },
-    { value: String(openTodos.length), label: 'open todos' },
+    { value: String(openTasks.length), label: 'open tasks' },
     { value: String(todaysEvents.length), label: 'events today' },
     { value: String(linkCount), label: linkCount === 1 ? 'link' : 'links' }
   ]
@@ -148,7 +148,7 @@ function Home(): React.JSX.Element {
 
         <section className="home__section" aria-label="Today at a glance">
           <h2 className="home__section-title">Today at a glance</h2>
-          {todaysEvents.length === 0 && dueTodos.length === 0 ? (
+          {todaysEvents.length === 0 && dueTasks.length === 0 ? (
             <p className="home__muted">Nothing on for today — enjoy the clear.</p>
           ) : (
             <div className="home__today">
@@ -171,20 +171,20 @@ function Home(): React.JSX.Element {
                   </span>
                 </button>
               ))}
-              {dueTodos.map((todo) => (
+              {dueTasks.map((task) => (
                 <button
-                  key={todo.id}
+                  key={task.id}
                   type="button"
                   className="home__today-row"
-                  onClick={() => openNav('todo')}
+                  onClick={() => openNav('tasks')}
                 >
-                  <ListTodoIcon size={15} />
+                  <TaskIcon size={15} />
                   <span className="home__today-text">
-                    <strong>{todo.title.trim() || 'Untitled'}</strong>
+                    <strong>{task.title.trim() || 'Untitled'}</strong>
                     <small>
-                      {todo.due !== null && todo.due < today
-                        ? `Overdue · due ${todo.due}`
-                        : `Due today${todo.time ? ` · ${todo.time}` : ''}`}
+                      {task.due !== null && task.due < today
+                        ? `Overdue · due ${task.due}`
+                        : `Due today${task.time ? ` · ${task.time}` : ''}`}
                     </small>
                   </span>
                 </button>

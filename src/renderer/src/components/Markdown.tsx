@@ -55,14 +55,16 @@ function Math({ tex, display }: { tex: string; display: boolean }): React.JSX.El
 /** A `[[Note]]` / `[[Note|alias]]` link: opens the note, or creates it. */
 function WikiLink({ target, alias }: { target: string; alias: string }): React.JSX.Element {
   const notes = useAppStore((state) => state.notes)
-  const resolved = resolveWikiTarget(target, notes)
+  const live = notes.filter((note) => !note.deletedAt)
+  const resolved = resolveWikiTarget(target, live)
   return (
     <button
       type="button"
       className={`markdown__wiki${resolved ? '' : ' markdown__wiki--missing'}`}
       title={resolved ? `Open ${target}` : `Create ${target}`}
       onClick={() => {
-        const { notes: live, openNote, createNote } = useAppStore.getState()
+        const { notes, openNote, createNote } = useAppStore.getState()
+        const live = notes.filter((note) => !note.deletedAt)
         const id = resolveWikiTarget(target, live)
         openNote(id ?? createNote(target))
       }}

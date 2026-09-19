@@ -1,14 +1,14 @@
 /**
- * Planner data model + pure helpers for the calendar and todo list.
+ * Planner data model + pure helpers for the calendar and task list.
  *
  * Stored as plain JSON in the vault: `calendar.json` (local events),
- * `todo.json` (tasks + todos, one shared list) and `calendars.json`
+ * `tasks.json` (the shared task list) and `calendars.json`
  * (subscriptions + their cached events).
  *
  * Event and task shapes mirror the Google Calendar / Google Tasks APIs
  * (`summary`, `start`/`end`, `recurrence`, `notes`, `due`, `status`) so data
  * transfers across with a direct field mapping. Our extras are `location`,
- * the todo `time`, `calendarId` for multi-calendar coloring, and local
+ * the task `time`, `calendarId` for multi-calendar coloring, and local
  * timestamps.
  *
  * Dates are local `YYYY-MM-DD` and times `HH:MM`, so no timezone math leaks
@@ -28,8 +28,23 @@ export interface EventDateTime {
 
 export type EventStatus = 'confirmed' | 'cancelled'
 
-/** `task` and `todo` are one record type, so they share a single source of truth. */
-export type TodoKind = 'task' | 'todo'
+/** Everything dated or undated that isn't a calendar event is a task. */
+export type TaskStatus = 'needsAction' | 'completed'
+
+export interface TaskItem {
+  id: string
+  title: string
+  /** Google Tasks `notes`. */
+  notes: string
+  location: string
+  /** Google Tasks `due` (`YYYY-MM-DD`), or null for unscheduled. */
+  due: string | null
+  /** `HH:MM` or null. Google due-dates are date-only; this is our extension. */
+  time: string | null
+  status: TaskStatus
+  createdAt: number
+  updatedAt: number
+}
 
 /** The local, editable calendar. Any other id refers to a subscription. */
 export const LOCAL_CALENDAR_ID = 'local'
@@ -48,25 +63,6 @@ export interface CalendarItem {
   exdates: string[]
   /** Owning calendar: `local` or a subscription id (drives chip color). */
   calendarId: string
-  createdAt: number
-  updatedAt: number
-}
-
-export type TodoStatus = 'needsAction' | 'completed'
-
-export interface TodoItem {
-  /** `task` (scheduled, shown on the calendar) or `todo` (general). */
-  kind: TodoKind
-  id: string
-  title: string
-  /** Google Tasks `notes`. */
-  notes: string
-  location: string
-  /** Google Tasks `due` (`YYYY-MM-DD`), or null for unscheduled. */
-  due: string | null
-  /** `HH:MM` or null. Google due-dates are date-only; this is our extension. */
-  time: string | null
-  status: TodoStatus
   createdAt: number
   updatedAt: number
 }
@@ -109,13 +105,12 @@ export function defaultCalendarColor(index: number): string {
   return CALENDAR_COLORS[index % CALENDAR_COLORS.length]
 }
 
-/** Fixed colors for task/todo chips so they read as work items, not events. */
-export const TODO_KIND_COLOR: Record<TodoKind, string> = {
-  task: '#b284ff',
-  todo: '#ffbe5a'
-}
+/** Fixed chip color for tasks so they read as work items, not events. */
+export const TASK_COLOR = '#b284ff'
 
 export const CALENDAR_FILE = 'calendar.json'
+export const TASKS_FILE = 'tasks.json'
+/** Pre-rename task store; read once for migration, then retired. */
 export const TODO_FILE = 'todo.json'
 export const CALENDARS_FILE = 'calendars.json'
 
@@ -132,8 +127,7 @@ export interface CalendarDraft {
   calendarId: string
 }
 
-export interface TodoDraft {
-  kind: TodoKind
+export interface TaskDraft {
   title: string
   notes: string
   location: string
@@ -267,20 +261,20 @@ function legacyKind(value: unknown): 'task' | 'event' {
 }
 
 /**
- * Coerce one raw JSON value into a TodoItem, or null when unusable.
+ * Coerce one raw JSON value into a TaskItem, or null when unusable.
  * Accepts the current Google-like shape (`notes`/`due`/`status`) plus the
- * legacy shape (`description`/`date`/`done`), migrated inline.
+ * legacy shape (`description`/`date`/`done`), migrated inline. The retired
+ * `kind: 'todo' | 'task'` split is ignored — everything is a task now.
  */
-export function toTodoItem(value: unknown, now: number): TodoItem | null {
+export function toTaskItem(value: unknown, now: number): TaskItem | null {
   if (!isRecord(value)) return null
   const id = asId(value.id)
   if (!id) return null
   const notes = 'notes' in value ? asString(value.notes) : asString(value.description)
   const due = 'due' in value ? asDate(value.due) : asDate(value.date)
-  const status: TodoStatus =
+  const status: TaskStatus =
     value.status === 'completed' || value.done === true ? 'completed' : 'needsAction'
   return {
-    kind: value.kind === 'task' ? 'task' : 'todo',
     id,
     title: asString(value.title),
     notes,
@@ -321,8 +315,8 @@ export function itemDurationMinutes(item: CalendarItem): number {
   return Math.max(0, minutesOf(end) - minutesOf(start))
 }
 
-export function isTodoDone(todo: TodoItem): boolean {
-  return todo.status === 'completed'
+export function isTaskDone(task: TaskItem): boolean {
+  return task.status === 'completed'
 }
 
 /** Flat form fields for editing an existing calendar item. */
@@ -363,15 +357,14 @@ export function calendarItemFromDraft(
   }
 }
 
-export function todoItemFromDraft(
+export function taskItemFromDraft(
   id: string,
-  draft: TodoDraft,
+  draft: TaskDraft,
   done: boolean,
   now: number,
-  existing?: Pick<TodoItem, 'createdAt'>
-): TodoItem {
+  existing?: Pick<TaskItem, 'createdAt'>
+): TaskItem {
   return {
-    kind: draft.kind,
     id,
     title: draft.title,
     notes: draft.notes,
@@ -386,26 +379,25 @@ export function todoItemFromDraft(
 
 export interface CalendarLoad {
   events: CalendarItem[]
-  /** Events that used to be `kind: 'task'`, converted to shared todo records. */
-  migratedTodos: TodoItem[]
+  /** Entries that used to be `kind: 'task'`, converted to shared task records. */
+  migratedTasks: TaskItem[]
 }
 
 /**
  * Load calendar.json, splitting out legacy `kind: 'task'` entries so tasks
- * and todos end up in the one shared list instead of a parallel array.
+ * end up in the one shared list instead of a parallel array.
  */
 export function parseCalendarData(data: unknown): CalendarLoad {
-  if (!Array.isArray(data)) return { events: [], migratedTodos: [] }
+  if (!Array.isArray(data)) return { events: [], migratedTasks: [] }
   const now = Date.now()
   const events: CalendarItem[] = []
-  const migratedTodos: TodoItem[] = []
+  const migratedTasks: TaskItem[] = []
   for (const value of data) {
     const raw = isRecord(value) ? rawFrom(value, now) : null
     if (!raw) continue
     if (legacyKind(value) === 'task') {
       const date = raw.start.date ?? raw.start.dateTime?.slice(0, 10) ?? null
-      migratedTodos.push({
-        kind: 'task',
+      migratedTasks.push({
         id: raw.id,
         title: raw.summary,
         notes: raw.description,
@@ -420,19 +412,19 @@ export function parseCalendarData(data: unknown): CalendarLoad {
       events.push(raw)
     }
   }
-  return { events, migratedTodos }
+  return { events, migratedTasks }
 }
 
 export function parseCalendarItems(data: unknown): CalendarItem[] {
   return parseCalendarData(data).events
 }
 
-export function parseTodoItems(data: unknown): TodoItem[] {
+export function parseTaskItems(data: unknown): TaskItem[] {
   if (!Array.isArray(data)) return []
   const now = Date.now()
-  const items: TodoItem[] = []
+  const items: TaskItem[] = []
   for (const value of data) {
-    const item = toTodoItem(value, now)
+    const item = toTaskItem(value, now)
     if (item) items.push(item)
   }
   return items

@@ -8,13 +8,14 @@ import { XIcon } from './components/icons'
 import { NAV_LABELS } from './nav'
 import Agent from './pages/Agent'
 import Calendar from './pages/Calendar'
+import Email from './pages/Email'
 import Graph from './pages/Graph'
 import Home from './pages/Home'
 import Misc from './pages/Misc'
 import Note from './pages/Note'
 import Section from './pages/Section'
 import Settings from './pages/Settings'
-import Todo from './pages/Todo'
+import Tasks from './pages/Tasks'
 import { SPLIT_RATIO_DEFAULT, type NavKey, type Tab, useAppStore } from './store/appStore'
 
 /** How often auto-sync checks for unpushed vault changes. */
@@ -26,7 +27,8 @@ function Content({ active }: { active: NavKey }): React.JSX.Element {
   if (active === 'graph') return <Graph />
   if (active === 'settings') return <Settings />
   if (active === 'calendar') return <Calendar />
-  if (active === 'todo') return <Todo />
+  if (active === 'email') return <Email />
+  if (active === 'tasks') return <Tasks />
   if (active === 'misc') return <Misc />
   return <Section section={active} />
 }

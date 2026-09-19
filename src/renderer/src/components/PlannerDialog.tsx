@@ -6,19 +6,18 @@ import {
   itemEndTime,
   itemStartTime,
   type CalendarItem,
-  type TodoItem,
-  type TodoKind
+  type TaskItem
 } from '../planner'
 import { buildRRule, parseRRule, type Freq, type Recurrence } from '../recurrence'
-import { CalendarIcon, ListTodoIcon, TaskIcon, XIcon } from './icons'
+import { CalendarIcon, TaskIcon, XIcon } from './icons'
 
-/** Dialog entry kinds: events live in the calendar, tasks/todos in the list. */
-export type DialogKind = 'event' | TodoKind
+/** Dialog entry kinds: events live in the calendar, tasks in the list. */
+export type DialogKind = 'event' | 'task'
 
 export type PlannerDialogTarget =
   | { mode: 'create'; kind: DialogKind; date: string; startTime?: string | null }
   | { mode: 'edit-item'; item: CalendarItem }
-  | { mode: 'edit-todo'; item: TodoItem }
+  | { mode: 'edit-task'; item: TaskItem }
 
 type RepeatMode = 'none' | Freq
 type EndMode = 'never' | 'on' | 'after'
@@ -51,16 +50,12 @@ function PlannerDialog({
   const addCalendarItem = useAppStore((state) => state.addCalendarItem)
   const updateCalendarItem = useAppStore((state) => state.updateCalendarItem)
   const deleteCalendarItem = useAppStore((state) => state.deleteCalendarItem)
-  const addTodo = useAppStore((state) => state.addTodo)
-  const updateTodo = useAppStore((state) => state.updateTodo)
-  const deleteTodo = useAppStore((state) => state.deleteTodo)
+  const addTask = useAppStore((state) => state.addTask)
+  const updateTask = useAppStore((state) => state.updateTask)
+  const deleteTask = useAppStore((state) => state.deleteTask)
 
   const [kind, setKind] = useState<DialogKind>(
-    target.mode === 'create'
-      ? target.kind
-      : target.mode === 'edit-item'
-        ? 'event'
-        : target.item.kind
+    target.mode === 'create' ? target.kind : target.mode === 'edit-item' ? 'event' : 'task'
   )
   const [title, setTitle] = useState(() =>
     target.mode === 'create'
@@ -85,11 +80,11 @@ function PlannerDialog({
     return target.item.due ?? ''
   })
   const [noDate, setNoDate] = useState(
-    () => target.mode === 'edit-todo' && target.item.due === null
+    () => target.mode === 'edit-task' && target.item.due === null
   )
   const [allDay, setAllDay] = useState(() => {
     if (target.mode === 'edit-item') return itemStartTime(target.item) === null
-    if (target.mode === 'edit-todo') return target.item.time === null
+    if (target.mode === 'edit-task') return target.item.time === null
     return target.startTime == null
   })
   const [start, setStart] = useState(() => {
@@ -101,7 +96,7 @@ function PlannerDialog({
     target.mode === 'edit-item' ? (itemEndTime(target.item) ?? '') : ''
   )
   const [done, setDone] = useState(
-    () => target.mode === 'edit-todo' && target.item.status === 'completed'
+    () => target.mode === 'edit-task' && target.item.status === 'completed'
   )
 
   // Recurrence form state, seeded from the item's existing rule.
@@ -124,8 +119,14 @@ function PlannerDialog({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const isTodo = kind !== 'event'
-  const canSave = title.trim().length > 0 && (isTodo ? noDate || date !== '' : date !== '')
+  const kindOptions: readonly DialogKind[] =
+    target.mode === 'create'
+      ? (['event', 'task'] as const)
+      : target.mode === 'edit-item'
+        ? (['event'] as const)
+        : (['task'] as const)
+  const isTask = kind !== 'event'
+  const canSave = title.trim().length > 0 && (isTask ? noDate || date !== '' : date !== '')
 
   const buildRule = (): string | null => {
     if (repeat === 'none') return null
@@ -142,19 +143,18 @@ function PlannerDialog({
   const save = (): void => {
     if (!canSave) return
     const cleanTitle = title.trim()
-    if (isTodo) {
+    if (isTask) {
       const draft = {
-        kind,
         title: cleanTitle,
         notes: notes.trim(),
         location: location.trim(),
         due: noDate || !date ? null : date,
         time: noDate || allDay || !start ? null : start
       }
-      if (target.mode === 'edit-todo') {
-        updateTodo(target.item.id, { ...draft, done })
+      if (target.mode === 'edit-task') {
+        updateTask(target.item.id, { ...draft, done })
       } else {
-        addTodo(draft)
+        addTask(draft)
       }
     } else {
       const endTime = !allDay && end && start && end > start ? end : null
@@ -180,17 +180,15 @@ function PlannerDialog({
 
   const remove = (): void => {
     if (target.mode === 'edit-item') deleteCalendarItem(target.item.id)
-    else if (target.mode === 'edit-todo') deleteTodo(target.item.id)
+    else if (target.mode === 'edit-task') deleteTask(target.item.id)
     onClose()
   }
 
   const kindIcon = (value: DialogKind, size = 13): React.JSX.Element => {
-    if (value === 'todo') return <ListTodoIcon size={size} />
     if (value === 'task') return <TaskIcon size={size} />
     return <CalendarIcon size={size} />
   }
-  const kindLabel = (value: DialogKind): string =>
-    value === 'todo' ? 'Todo' : value === 'task' ? 'Task' : 'Event'
+  const kindLabel = (value: DialogKind): string => (value === 'task' ? 'Task' : 'Event')
 
   return (
     <div className="dlg-overlay" onClick={onClose}>
@@ -209,12 +207,7 @@ function PlannerDialog({
         </div>
 
         <div className="dlg__seg" role="group" aria-label="Entry kind">
-          {(target.mode === 'create'
-            ? (['event', 'task', 'todo'] as const)
-            : target.mode === 'edit-item'
-              ? (['event'] as const)
-              : (['task', 'todo'] as const)
-          ).map((value) => (
+          {kindOptions.map((value) => (
             <button
               key={value}
               type="button"
@@ -233,7 +226,7 @@ function PlannerDialog({
             className="dlg__input"
             value={title}
             autoFocus
-            placeholder={isTodo ? 'Task title' : 'Event title'}
+            placeholder={isTask ? 'Task title' : 'Event title'}
             onChange={(event) => setTitle(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter') save()
@@ -243,16 +236,16 @@ function PlannerDialog({
 
         <div className="dlg__row">
           <label className="dlg__field">
-            <span className="dlg__label">{isTodo ? 'Due date' : 'Date'}</span>
+            <span className="dlg__label">{isTask ? 'Due date' : 'Date'}</span>
             <input
               type="date"
               className="dlg__input"
-              value={isTodo && noDate ? '' : date}
-              disabled={isTodo && noDate}
+              value={isTask && noDate ? '' : date}
+              disabled={isTask && noDate}
               onChange={(event) => setDate(event.target.value)}
             />
           </label>
-          {isTodo ? (
+          {isTask ? (
             <label className="dlg__field">
               <span className="dlg__label">Time</span>
               <input
@@ -290,7 +283,7 @@ function PlannerDialog({
         </div>
 
         <div className="dlg__row dlg__row--checks">
-          {isTodo ? (
+          {isTask ? (
             <>
               <label className="settings__check">
                 <input
@@ -309,7 +302,7 @@ function PlannerDialog({
                 />
                 All day
               </label>
-              {target.mode === 'edit-todo' && (
+              {target.mode === 'edit-task' && (
                 <label className="settings__check">
                   <input
                     type="checkbox"
@@ -332,7 +325,7 @@ function PlannerDialog({
           )}
         </div>
 
-        {!isTodo && (
+        {!isTask && (
           <div className="dlg__recur">
             <label className="dlg__field">
               <span className="dlg__label">Repeat</span>
@@ -451,7 +444,7 @@ function PlannerDialog({
         </label>
 
         <label className="dlg__field">
-          <span className="dlg__label">{isTodo ? 'Notes' : 'Description'}</span>
+          <span className="dlg__label">{isTask ? 'Notes' : 'Description'}</span>
           <textarea
             className="dlg__input dlg__textarea"
             value={notes}

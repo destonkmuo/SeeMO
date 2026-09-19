@@ -60,17 +60,19 @@ function Graph(): React.JSX.Element {
     openNoteRef.current = openNote
   })
 
+  const live = useMemo(() => notes.filter((note) => !note.deletedAt), [notes])
+
   const { nodes, edges } = useMemo(() => {
-    const built: GraphNode[] = notes.map((note) => ({
+    const built: GraphNode[] = live.map((note) => ({
       id: note.id,
       title: note.title.trim() || 'Untitled',
       size: note.content.length
     }))
     const seen = new Set<string>()
     const links: GraphEdge[] = []
-    for (const note of notes) {
+    for (const note of live) {
       for (const link of parseWikiLinks(note.content)) {
-        const targetId = resolveWikiTarget(link.target, notes)
+        const targetId = resolveWikiTarget(link.target, live)
         if (!targetId || targetId === note.id) continue
         const key = [note.id, targetId].sort().join('|')
         if (seen.has(key)) continue
@@ -79,7 +81,7 @@ function Graph(): React.JSX.Element {
       }
     }
     return { nodes: built, edges: links }
-  }, [notes])
+  }, [live])
 
   const dataRef = useRef({ nodes, edges })
   useEffect(() => {

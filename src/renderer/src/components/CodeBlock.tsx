@@ -116,9 +116,16 @@ function CodeBlock({ code, lang }: { code: string; lang: string }): React.JSX.El
     }
   }
 
+  // Only the interactive chrome (header buttons, console) swallows clicks:
+  // Go/Copy must not bubble to the block editor's view container, which
+  // would swap this block into edit mode and unmount the runner iframe
+  // mid-run. Clicks on the code itself still bubble through so the block
+  // stays editable.
+  const swallowClick = (event: React.MouseEvent): void => event.stopPropagation()
+
   return (
     <div className="codeblock">
-      <div className="codeblock__head">
+      <div className="codeblock__head" onClick={swallowClick}>
         <span className="codeblock__lang">{language || 'text'}</span>
         <span className="codeblock__actions">
           <button type="button" className="codeblock__btn" onClick={copy}>
@@ -130,8 +137,9 @@ function CodeBlock({ code, lang }: { code: string; lang: string }): React.JSX.El
               className="codeblock__btn codeblock__btn--run"
               onClick={run}
               disabled={running}
+              title="Run this block — output lands in its console below"
             >
-              {running ? 'Running…' : 'Run'}
+              {running ? 'Running…' : 'Go'}
             </button>
           )}
         </span>
@@ -147,7 +155,12 @@ function CodeBlock({ code, lang }: { code: string; lang: string }): React.JSX.El
         )}
       </pre>
       {runnable && (
-        <div className="codeblock__console" aria-label="Console output" aria-live="polite">
+        <div
+          className="codeblock__console"
+          aria-label="Console output"
+          aria-live="polite"
+          onClick={swallowClick}
+        >
           {output.length === 0 ? (
             <span className="codeblock__console-empty">
               {running ? 'Running…' : 'Console output will appear here.'}
