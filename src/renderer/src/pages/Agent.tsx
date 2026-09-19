@@ -6,8 +6,8 @@ import { type CoreState, useAppStore } from '../store/appStore'
 
 const STATES: { key: CoreState; label: string; hint: string }[] = [
   { key: 'sleep', label: 'Sleep', hint: 'Dormant — not working, not spoken to' },
-  { key: 'summoned', label: 'Summoned', hint: 'Just heard the wake word' },
   { key: 'idle', label: 'Idle', hint: 'Listening — being spoken to' },
+  { key: 'summoned', label: 'Summoned', hint: 'Just heard the wake word' },
   { key: 'working', label: 'Working', hint: 'On an objective' },
   { key: 'speaking', label: 'Speaking', hint: 'Talking back' }
 ]

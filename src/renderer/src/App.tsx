@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import AgentBubble from './components/AgentBubble'
 import Sidebar from './components/Sidebar'
 import TabBar from './components/TabBar'
+import TabSwitcher from './components/TabSwitcher'
 import { XIcon } from './components/icons'
 import { NAV_LABELS } from './nav'
 import Agent from './pages/Agent'
@@ -211,6 +212,7 @@ function App(): React.JSX.Element {
         </div>
       </div>
       <AgentBubble />
+      <TabSwitcher />
     </div>
   )
 }

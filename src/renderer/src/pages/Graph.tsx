@@ -5,6 +5,8 @@ import { useAppStore } from '../store/appStore'
 interface GraphNode {
   id: string
   title: string
+  /** Raw content length in chars — drives a slight size boost per bubble. */
+  size: number
 }
 
 interface GraphEdge {
@@ -30,6 +32,24 @@ const MIN_ZOOM = 0.3
 const MAX_ZOOM = 3
 const CLICK_TOLERANCE = 5
 
+/** Bubble color by connectivity: isolated notes stay slate, linked notes go
+ * blue, hubs (3+ links) go amber. Hovered/neighbor nodes keep the accent. */
+const COLOR_ISOLATED = '#3d4f63'
+const COLOR_LINKED = '#3f8fff'
+const COLOR_HUB = '#ff9d2e'
+const COLOR_HOT = '#6ab0ff'
+
+function colorForDegree(degree: number): string {
+  if (degree >= 3) return COLOR_HUB
+  if (degree >= 1) return COLOR_LINKED
+  return COLOR_ISOLATED
+}
+
+/** Slight growth with file size: 0 chars adds nothing, ~1k chars adds ~3px. */
+function sizeBoost(size: number): number {
+  return Math.min(3, Math.log10(size + 1))
+}
+
 function Graph(): React.JSX.Element {
   const notes = useAppStore((state) => state.notes)
   const openNote = useAppStore((state) => state.openNote)
@@ -43,7 +63,8 @@ function Graph(): React.JSX.Element {
   const { nodes, edges } = useMemo(() => {
     const built: GraphNode[] = notes.map((note) => ({
       id: note.id,
-      title: note.title.trim() || 'Untitled'
+      title: note.title.trim() || 'Untitled',
+      size: note.content.length
     }))
     const seen = new Set<string>()
     const links: GraphEdge[] = []
@@ -244,11 +265,12 @@ function Graph(): React.JSX.Element {
       for (const node of live) {
         const p = sim.pos.get(node.id)
         if (!p) continue
-        const degree = Math.min(adjacency.get(node.id)?.size ?? 0, DEGREE_CAP)
+        const links = adjacency.get(node.id)?.size ?? 0
+        const degree = Math.min(links, DEGREE_CAP)
         const hot = hovered === node.id || neighbors?.has(node.id) === true
-        const radius = (node.id === hovered ? 8 : 5.5) + degree * 0.9
+        const radius = (node.id === hovered ? 8 : 5.5) + degree * 0.9 + sizeBoost(node.size)
         ctx.globalAlpha = isDimmed(node.id) ? 0.3 : 1
-        ctx.fillStyle = hot ? '#6ab0ff' : '#3d4f63'
+        ctx.fillStyle = hot ? COLOR_HOT : colorForDegree(links)
         ctx.beginPath()
         ctx.arc(p.x, p.y, radius, 0, Math.PI * 2)
         ctx.fill()
@@ -365,6 +387,20 @@ function Graph(): React.JSX.Element {
         <span className="graph__stats">
           {nodes.length} {nodes.length === 1 ? 'note' : 'notes'} · {edges.length}{' '}
           {edges.length === 1 ? 'link' : 'links'}
+        </span>
+        <span className="graph__legend" aria-label="Node colors">
+          <span className="graph__legend-item">
+            <span className="graph__dot" style={{ background: COLOR_ISOLATED }} />
+            Isolated
+          </span>
+          <span className="graph__legend-item">
+            <span className="graph__dot" style={{ background: COLOR_LINKED }} />
+            Linked
+          </span>
+          <span className="graph__legend-item">
+            <span className="graph__dot" style={{ background: COLOR_HUB }} />
+            Hub (3+)
+          </span>
         </span>
       </header>
       <div className="graph__wrap" ref={wrapRef}>

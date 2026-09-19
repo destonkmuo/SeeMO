@@ -1,29 +1,55 @@
 import type { ReactNode } from 'react'
+import { useMemo } from 'react'
+import katex from 'katex'
+import 'katex/dist/katex.min.css'
 import { BULLET, FENCE, HEADING, ORDERED, QUOTE, RULE, TASK, splitBlocks } from '../markdown'
 import { resolveWikiTarget } from '../notes'
 import { useAppStore } from '../store/appStore'
+import CodeBlock from './CodeBlock'
 
 /**
  * Minimal markdown renderer for notes.
  *
  * Supports: headings, bold/italic/strikethrough, inline code, fenced code,
- * links, images, unordered/ordered/task lists, blockquotes and horizontal
- * rules. Output is React elements (never raw HTML), so note content cannot
- * inject markup.
+ * links, images, unordered/ordered/task lists, blockquotes, horizontal
+ * rules, and LaTeX math (`$…$` inline, `$$…$$` display). Output is React
+ * elements (never raw HTML) except KaTeX spans, whose markup is generated
+ * by the KaTeX library itself (user input is escaped, never passed through),
+ * so note content still cannot inject markup.
  */
 
 // A single pass over inline tokens. Code spans come first so their contents
-// are never re-parsed for emphasis. Wiki-links come before md-links so that
-// `[[a]]` is never misread (it can't match the md-link shape anyway, which
-// requires `](`, but explicit ordering keeps it obvious).
+// are never re-parsed for emphasis or math. Display math comes before inline
+// math so `$$x$$` is never split into two `$` matches. Wiki-links come before
+// md-links so that `[[a]]` is never misread (it can't match the md-link shape
+// anyway, which requires `](`, but explicit ordering keeps it obvious).
+// Inline `$…$` requires non-space edges so prices like `$5 and $6` stay text.
 const INLINE_RE =
-  /(`[^`\n]+`)|(\[\[[^\]\n]+\]\])|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~\n]+~~)|(!?\[[^\]\n]*\]\([^)\n]*\))/g
+  /(`[^`\n]+`)|(\$\$[^$\n]+\$\$)|(\$[^\s$](?:[^$\n]*[^\s$])?\$)|(\[\[[^\]\n]+\]\])|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~\n]+~~)|(!?\[[^\]\n]*\]\([^)\n]*\))/g
 
 const SAFE_URL = /^(https?:\/\/|mailto:|#|\/)/i
 
 function safeUrl(url: string): string | undefined {
   const trimmed = url.trim()
   return SAFE_URL.test(trimmed) ? trimmed : undefined
+}
+
+/** LaTeX math rendered by KaTeX. Falls back to a code span on failure. */
+function Math({ tex, display }: { tex: string; display: boolean }): React.JSX.Element {
+  const html = useMemo(() => {
+    try {
+      return katex.renderToString(tex, { displayMode: display, throwOnError: false })
+    } catch {
+      return null
+    }
+  }, [tex, display])
+  if (html === null) return <code>{tex}</code>
+  return (
+    <span
+      className={display ? 'math math--display' : 'math'}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  )
 }
 
 /** A `[[Note]]` / `[[Note|alias]]` link: opens the note, or creates it. */
@@ -63,6 +89,10 @@ function renderInline(text: string, prefix: string): ReactNode[] {
 
     if (token.startsWith('`')) {
       nodes.push(<code key={key}>{token.slice(1, -1)}</code>)
+    } else if (token.startsWith('$$')) {
+      nodes.push(<Math key={key} tex={token.slice(2, -2)} display />)
+    } else if (token.startsWith('$')) {
+      nodes.push(<Math key={key} tex={token.slice(1, -1)} display={false} />)
     } else if (token.startsWith('[[')) {
       const inner = token.slice(2, -2)
       const pipe = inner.indexOf('|')
@@ -132,15 +162,17 @@ function renderBlock(block: string, key: number): ReactNode {
     const lang = first.trim().slice(3).trim()
     const hasClose = lines.length > 1 && FENCE.test(lines[lines.length - 1])
     const body = lines.slice(1, hasClose ? -1 : undefined)
-    return (
-      <pre key={key}>
-        <code data-lang={lang || undefined}>{body.join('\n')}</code>
-      </pre>
-    )
+    return <CodeBlock key={key} code={body.join('\n')} lang={lang} />
   }
 
   if (RULE.test(first)) {
     return <hr key={key} />
+  }
+
+  // Display math block: `$$…$$` (single or multi-line, no blank lines inside).
+  const trimmed = block.trim()
+  if (trimmed.startsWith('$$') && trimmed.endsWith('$$') && trimmed.length > 4) {
+    return <Math key={key} tex={trimmed.slice(2, -2).trim()} display />
   }
 
   const head = HEADING.exec(first)

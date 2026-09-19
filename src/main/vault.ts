@@ -65,12 +65,18 @@ function ensureMarkdown(name: string): string {
   return clean.toLowerCase().endsWith('.md') ? clean : `${clean}.md`
 }
 
-/** JSON data files allowed to live alongside notes in the vault. */
-const DATA_FILES = ['calendar.json', 'todo.json'] as const
+/**
+ * JSON data files allowed to live alongside notes in the vault. Kept as an
+ * explicit allowlist so a renderer bug can never read/write arbitrary paths.
+ *
+ * NOTE: these names are mirrored by CALENDAR_FILE / TODO_FILE / CALENDARS_FILE
+ * in src/renderer/src/planner.ts — add new data files in both places.
+ */
+const DATA_FILES = ['calendar.json', 'todo.json', 'calendars.json'] as const
 
 function resolveDataFile(root: string, name: string): string {
   if (!DATA_FILES.includes(name as (typeof DATA_FILES)[number])) {
-    throw new Error(`not a planner data file: ${name}`)
+    throw new Error(`not a planner data file: ${name} (expected one of ${DATA_FILES.join(', ')})`)
   }
   return resolveVaultFile(root, name)
 }

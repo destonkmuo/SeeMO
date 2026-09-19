@@ -1,7 +1,15 @@
 import { useRef, useState } from 'react'
 import { NAV_BY_KEY, NAV_LABELS } from '../nav'
 import { useAppStore } from '../store/appStore'
-import { FileTextIcon, ClearAllIcon, PlusIcon, SplitIcon, XIcon } from './icons'
+import {
+  FileTextIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ClearAllIcon,
+  PlusIcon,
+  SplitIcon,
+  XIcon
+} from './icons'
 
 interface DropHint {
   id: string
@@ -13,7 +21,11 @@ function TabBar(): React.JSX.Element {
   const activeTabId = useAppStore((state) => state.activeTabId)
   const notes = useAppStore((state) => state.notes)
   const coreState = useAppStore((state) => state.coreState)
+  const tabHistory = useAppStore((state) => state.tabHistory)
+  const historyIndex = useAppStore((state) => state.historyIndex)
   const setActiveTab = useAppStore((state) => state.setActiveTab)
+  const goBackTab = useAppStore((state) => state.goBackTab)
+  const goForwardTab = useAppStore((state) => state.goForwardTab)
   const closeTab = useAppStore((state) => state.closeTab)
   const moveTab = useAppStore((state) => state.moveTab)
   const setSplitTab = useAppStore((state) => state.setSplitTab)
@@ -23,6 +35,11 @@ function TabBar(): React.JSX.Element {
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropHint, setDropHint] = useState<DropHint | null>(null)
   const dragIdRef = useRef<string | null>(null)
+
+  // Browser-style history: Back revisits the previously active tab,
+  // Forward redoes it. New visits truncate the forward trail.
+  const canGoBack = historyIndex > 0
+  const canGoForward = historyIndex >= 0 && historyIndex < tabHistory.length - 1
 
   const clearDrag = (): void => {
     dragIdRef.current = null
@@ -54,6 +71,28 @@ function TabBar(): React.JSX.Element {
 
   return (
     <div className="tabbar" role="tablist" aria-label="Open tabs">
+      <div className="tabbar__nav" role="group" aria-label="Switch tabs">
+        <button
+          type="button"
+          className="tabbar__new"
+          title="Back to the previous tab"
+          aria-label="Back to the previous tab"
+          disabled={!canGoBack}
+          onClick={() => goBackTab()}
+        >
+          <ChevronLeftIcon size={15} />
+        </button>
+        <button
+          type="button"
+          className="tabbar__new"
+          title="Forward to the next tab"
+          aria-label="Forward to the next tab"
+          disabled={!canGoForward}
+          onClick={() => goForwardTab()}
+        >
+          <ChevronRightIcon size={15} />
+        </button>
+      </div>
       <div
         className="tabbar__list"
         onDragOver={(event) => event.preventDefault()}

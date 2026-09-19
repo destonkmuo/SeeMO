@@ -83,6 +83,11 @@ interface AppState {
   noteOrder: string[]
   tabs: Tab[]
   activeTabId: string | null
+  /** Tab ids, most-recently-active first. Powers the Ctrl+Tab switcher order. */
+  tabRecency: string[]
+  /** Linear visit history + cursor. Back/Forward step through it browser-style. */
+  tabHistory: string[]
+  historyIndex: number
   query: string
   vaultPath: string | null
   vaultReady: boolean
@@ -113,6 +118,8 @@ interface AppState {
   markAgentSeen: () => void
   setQuery: (query: string) => void
   setActiveTab: (id: string) => void
+  goBackTab: () => void
+  goForwardTab: () => void
   setCalendarView: (view: CalendarView) => void
   setCalendarCursor: (date: string) => void
   openDay: (date: string) => void
@@ -171,6 +178,46 @@ function navTab(kind: NavKey): Tab {
 
 function noteTab(noteId: string): Tab {
   return { id: uid(), kind: 'note', noteId }
+}
+
+/** Move a tab id to the front of the recency list (drops duplicates). */
+function toFront(recency: string[], id: string): string[] {
+  return [id, ...recency.filter((tabId) => tabId !== id)]
+}
+
+const MAX_TAB_HISTORY = 100
+
+/**
+ * Record a visit: drop any "forward" entries past the cursor, append the tab
+ * (unless it repeats the current entry), and cap the length.
+ */
+function pushHistory(
+  history: string[],
+  index: number,
+  id: string
+): { tabHistory: string[]; historyIndex: number } {
+  const base = history.slice(0, index + 1)
+  if (base[base.length - 1] !== id) base.push(id)
+  const tabHistory = base.slice(-MAX_TAB_HISTORY)
+  return { tabHistory, historyIndex: tabHistory.length - 1 }
+}
+
+/**
+ * Drop history entries whose tabs no longer exist, keeping the cursor on the
+ * same visit where possible.
+ */
+function pruneHistory(
+  history: string[],
+  index: number,
+  keep: Set<string>
+): { tabHistory: string[]; historyIndex: number } {
+  const current = history[index]
+  const tabHistory = history.filter((id) => keep.has(id))
+  if (tabHistory.length === 0) return { tabHistory, historyIndex: -1 }
+  if (current !== undefined && keep.has(current)) {
+    return { tabHistory, historyIndex: tabHistory.indexOf(current) }
+  }
+  return { tabHistory, historyIndex: Math.min(Math.max(index, 0), tabHistory.length - 1) }
 }
 
 function blankNote(): Note {
@@ -241,6 +288,9 @@ export const useAppStore = create<AppState>()(
       noteOrder: [],
       tabs: [initialTab],
       activeTabId: initialTab.id,
+      tabRecency: [initialTab.id],
+      tabHistory: [initialTab.id],
+      historyIndex: 0,
       query: '',
       vaultPath: null,
       vaultReady: false,
@@ -281,7 +331,28 @@ export const useAppStore = create<AppState>()(
           return latest ? { lastSeenAgentId: latest } : {}
         }),
       setQuery: (query) => set({ query }),
-      setActiveTab: (id) => set({ activeTabId: id }),
+      setActiveTab: (id) =>
+        set((state) => ({
+          activeTabId: id,
+          tabRecency: toFront(state.tabRecency, id),
+          ...pushHistory(state.tabHistory, state.historyIndex, id)
+        })),
+      goBackTab: () =>
+        set((state) => {
+          const index = state.historyIndex - 1
+          if (index < 0) return {}
+          const id = state.tabHistory[index]
+          if (!state.tabs.some((t) => t.id === id)) return {}
+          return { activeTabId: id, historyIndex: index, tabRecency: toFront(state.tabRecency, id) }
+        }),
+      goForwardTab: () =>
+        set((state) => {
+          const index = state.historyIndex + 1
+          if (index >= state.tabHistory.length) return {}
+          const id = state.tabHistory[index]
+          if (!state.tabs.some((t) => t.id === id)) return {}
+          return { activeTabId: id, historyIndex: index, tabRecency: toFront(state.tabRecency, id) }
+        }),
       setCalendarView: (calendarView) => set({ calendarView }),
       setCalendarCursor: (calendarCursor) => set({ calendarCursor }),
       openDay: (date) => {
@@ -295,16 +366,36 @@ export const useAppStore = create<AppState>()(
       openNav: (kind) =>
         set((state) => {
           const existing = state.tabs.find((t) => t.kind === kind)
-          if (existing) return { activeTabId: existing.id }
+          if (existing)
+            return {
+              activeTabId: existing.id,
+              tabRecency: toFront(state.tabRecency, existing.id),
+              ...pushHistory(state.tabHistory, state.historyIndex, existing.id)
+            }
           const tab = navTab(kind)
-          return { tabs: [...state.tabs, tab], activeTabId: tab.id }
+          return {
+            tabs: [...state.tabs, tab],
+            activeTabId: tab.id,
+            tabRecency: toFront(state.tabRecency, tab.id),
+            ...pushHistory(state.tabHistory, state.historyIndex, tab.id)
+          }
         }),
       openNote: (noteId) =>
         set((state) => {
           const existing = state.tabs.find((t) => t.kind === 'note' && t.noteId === noteId)
-          if (existing) return { activeTabId: existing.id }
+          if (existing)
+            return {
+              activeTabId: existing.id,
+              tabRecency: toFront(state.tabRecency, existing.id),
+              ...pushHistory(state.tabHistory, state.historyIndex, existing.id)
+            }
           const tab = noteTab(noteId)
-          return { tabs: [...state.tabs, tab], activeTabId: tab.id }
+          return {
+            tabs: [...state.tabs, tab],
+            activeTabId: tab.id,
+            tabRecency: toFront(state.tabRecency, tab.id),
+            ...pushHistory(state.tabHistory, state.historyIndex, tab.id)
+          }
         }),
       closeTab: (id) =>
         set((state) => {
@@ -317,9 +408,24 @@ export const useAppStore = create<AppState>()(
               : state.activeTabId
           // Closing the split tab itself dissolves the split.
           const splitTabId = state.splitTabId === id ? null : state.splitTabId
-          return { tabs, activeTabId, splitTabId }
+          const keep = new Set(tabs.map((t) => t.id))
+          return {
+            tabs,
+            activeTabId,
+            splitTabId,
+            tabRecency: state.tabRecency.filter((t) => keep.has(t)),
+            ...pruneHistory(state.tabHistory, state.historyIndex, keep)
+          }
         }),
-      closeAllTabs: () => set({ tabs: [], activeTabId: null, splitTabId: null }),
+      closeAllTabs: () =>
+        set({
+          tabs: [],
+          activeTabId: null,
+          splitTabId: null,
+          tabRecency: [],
+          tabHistory: [],
+          historyIndex: -1
+        }),
       moveTab: (dragId, targetId, before) =>
         set((state) => {
           if (dragId === targetId) return {}
@@ -359,7 +465,9 @@ export const useAppStore = create<AppState>()(
             notes: [{ ...note, fileName }, ...state.notes],
             noteOrder: [note.id, ...state.noteOrder.filter((id) => id !== note.id)],
             tabs: [...state.tabs, tab],
-            activeTabId: tab.id
+            activeTabId: tab.id,
+            tabRecency: toFront(state.tabRecency, tab.id),
+            ...pushHistory(state.tabHistory, state.historyIndex, tab.id)
           }
         })
         const created = get().notes.find((n) => n.id === note.id)
@@ -391,7 +499,16 @@ export const useAppStore = create<AppState>()(
             state.splitTabId && tabs.some((t) => t.id === state.splitTabId)
               ? state.splitTabId
               : null
-          return { notes, noteOrder, tabs, activeTabId, splitTabId }
+          const kept = new Set(tabs.map((t) => t.id))
+          return {
+            notes,
+            noteOrder,
+            tabs,
+            activeTabId,
+            splitTabId,
+            tabRecency: state.tabRecency.filter((t) => kept.has(t)),
+            ...pruneHistory(state.tabHistory, state.historyIndex, kept)
+          }
         })
         if (removeFile && removed) {
           void window.api.vault.remove(removed.fileName).catch((error) => {
@@ -470,6 +587,14 @@ export const useAppStore = create<AppState>()(
               const activeTabId = withTabs.some((t) => t.id === state.activeTabId)
                 ? state.activeTabId
                 : withTabs[0].id
+              const withTabIds = new Set(withTabs.map((t) => t.id))
+              const keptHistory = pruneHistory(state.tabHistory, state.historyIndex, withTabIds)
+              // Fresh vaults (or pre-history saves) start history at the
+              // restored tab so Back has somewhere to go.
+              if (keptHistory.tabHistory.length === 0 && withTabs.length > 0 && activeTabId) {
+                keptHistory.tabHistory.push(activeTabId)
+                keptHistory.historyIndex = 0
+              }
               // Keep the manual order, drop stale ids, surface unpositioned
               // notes (imports, pre-vault notes) up top by recency.
               const keptOrder = state.noteOrder.filter((id) => noteIds.has(id))
@@ -482,7 +607,13 @@ export const useAppStore = create<AppState>()(
                 notes,
                 noteOrder: [...unpositioned, ...keptOrder],
                 tabs: withTabs,
-                activeTabId
+                activeTabId,
+                tabRecency: [
+                  ...state.tabRecency.filter((id) => withTabIds.has(id)),
+                  ...withTabs.map((t) => t.id).filter((id) => !state.tabRecency.includes(id))
+                ],
+                tabHistory: keptHistory.tabHistory,
+                historyIndex: keptHistory.historyIndex
               }
             })
 
@@ -757,6 +888,9 @@ export const useAppStore = create<AppState>()(
         noteOrder: state.noteOrder,
         tabs: state.tabs,
         activeTabId: state.activeTabId,
+        tabRecency: state.tabRecency,
+        tabHistory: state.tabHistory,
+        historyIndex: state.historyIndex,
         messages: state.messages.slice(-MAX_CHAT_MESSAGES),
         autoSync: state.autoSync,
         backgroundListening: state.backgroundListening,
@@ -781,6 +915,9 @@ export const useAppStore = create<AppState>()(
             | 'noteOrder'
             | 'tabs'
             | 'activeTabId'
+            | 'tabRecency'
+            | 'tabHistory'
+            | 'historyIndex'
             | 'messages'
             | 'autoSync'
             | 'backgroundListening'
@@ -805,6 +942,18 @@ export const useAppStore = create<AppState>()(
         const activeTabId = tabs.some((t) => t.id === saved.activeTabId)
           ? (saved.activeTabId as string)
           : tabs[0].id
+        // Recency survives restarts: keep known ids most-recent-first, then
+        // append any restored tab the old list never saw.
+        const tabIds = new Set(tabs.map((t) => t.id))
+        const tabRecency = [
+          ...(saved.tabRecency ?? []).filter((id) => tabIds.has(id)),
+          ...tabs.map((t) => t.id).filter((id) => !(saved.tabRecency ?? []).includes(id))
+        ]
+        // History survives restarts too; seed from the active tab when the
+        // saved list is empty or predates this feature.
+        const pruned = pruneHistory(saved.tabHistory ?? [], saved.historyIndex ?? -1, tabIds)
+        const tabHistory = pruned.tabHistory.length > 0 ? pruned.tabHistory : [activeTabId]
+        const historyIndex = pruned.tabHistory.length > 0 ? pruned.historyIndex : 0
         const messages = (saved.messages ?? []).slice(-MAX_CHAT_MESSAGES)
         const noteOrder = (saved.noteOrder ?? []).filter((id) => noteIds.has(id))
         // Never pop the bubble for history that predates this launch: seed
@@ -821,6 +970,9 @@ export const useAppStore = create<AppState>()(
           noteOrder,
           tabs,
           activeTabId,
+          tabRecency,
+          tabHistory,
+          historyIndex,
           messages,
           autoSync: saved.autoSync ?? false,
           backgroundListening: saved.backgroundListening ?? false,

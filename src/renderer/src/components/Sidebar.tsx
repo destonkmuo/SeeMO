@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { NAV_ITEMS } from '../nav'
 import { buildNoteGraph, orderedNotes } from '../notes'
+import { LOCAL_CALENDAR_ID, expandItemDates, todayISO, type CalendarItem } from '../planner'
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth, useAppStore, type Note } from '../store/appStore'
 import {
   CalendarIcon,
@@ -12,29 +13,134 @@ import {
   TrashIcon
 } from './icons'
 
-function UpcomingEvents(): React.JSX.Element {
+/** "9:00 AM" from an event start (all-day events have no time part). */
+function formatEventTime(item: CalendarItem): string {
+  const time = item.start.dateTime?.split('T')[1]?.slice(0, 5)
+  if (!time) return 'All day'
+  return formatClock(time)
+}
+
+/** "14:30" -> "2:30 PM". */
+function formatClock(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  if (Number.isNaN(h) || Number.isNaN(m)) return hhmm
+  const suffix = h >= 12 ? 'PM' : 'AM'
+  const hour = h % 12 === 0 ? 12 : h % 12
+  return `${hour}:${String(m).padStart(2, '0')} ${suffix}`
+}
+
+/**
+ * Today at a glance: today's calendar events (local + enabled subscriptions,
+ * recurrence-aware) above today's todos (due today or overdue). Replaces the
+ * old "upcoming events" placeholder, which never showed anything actionable.
+ */
+function TodaySection(): React.JSX.Element {
   const [open, setOpen] = useState(true)
+  const calendarItems = useAppStore((state) => state.calendarItems)
+  const subscriptions = useAppStore((state) => state.subscriptions)
+  const localCalendarColor = useAppStore((state) => state.localCalendarColor)
+  const plannerReady = useAppStore((state) => state.plannerReady)
+  const todos = useAppStore((state) => state.todos)
+  const toggleTodo = useAppStore((state) => state.toggleTodo)
   const openNav = useAppStore((state) => state.openNav)
 
+  const today = todayISO()
+
+  const events = useMemo(() => {
+    const colors = new Map<string, string>([[LOCAL_CALENDAR_ID, localCalendarColor]])
+    const items: CalendarItem[] = [...calendarItems]
+    for (const sub of subscriptions) {
+      if (!sub.enabled) continue
+      colors.set(sub.id, sub.color)
+      items.push(...sub.events)
+    }
+    const rows: { id: string; title: string; time: string; sort: string; color: string }[] = []
+    for (const item of items) {
+      if (expandItemDates(item, today, today).length === 0) continue
+      rows.push({
+        id: item.id,
+        title: item.summary.trim() || 'Untitled',
+        time: formatEventTime(item),
+        sort: item.start.dateTime ?? `${today}T99:99`,
+        color: colors.get(item.calendarId) ?? localCalendarColor
+      })
+    }
+    rows.sort((a, b) => (a.sort < b.sort ? -1 : a.sort > b.sort ? 1 : 0))
+    return rows
+  }, [calendarItems, subscriptions, localCalendarColor, today])
+
+  const todaysTodos = useMemo(
+    () =>
+      todos
+        .filter((todo) => todo.status !== 'completed' && todo.due !== null && todo.due <= today)
+        .sort((a, b) => ((a.due ?? '') + (a.time ?? '') < (b.due ?? '') + (b.time ?? '') ? -1 : 1)),
+    [todos, today]
+  )
+
+  const count = events.length + todaysTodos.length
+
   return (
-    <section className="sidebar__events" aria-label="Upcoming events">
-      <button
-        type="button"
-        className="sidebar__section-head sidebar__section-head--toggle"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span className="sidebar__section-title">Upcoming events</span>
-        <ChevronDownIcon size={14} className={`sidebar__chevron${open ? ' is-open' : ''}`} />
-      </button>
-      {open && (
-        <button type="button" className="sidebar__connect" onClick={() => openNav('calendar')}>
-          <CalendarIcon size={16} />
-          <span className="sidebar__connect-text">
-            <strong>Connect your calendar</strong>
-            <small>See all your events and start meeting notes for them.</small>
-          </span>
+    <section className="sidebar__events" aria-label="Today">
+      <div className="sidebar__section-head sidebar__today-head">
+        <button
+          type="button"
+          className="sidebar__section-head--toggle"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span className="sidebar__section-title">Today</span>
+          {count > 0 && <span className="sidebar__today-count">{count}</span>}
+          <ChevronDownIcon size={14} className={`sidebar__chevron${open ? ' is-open' : ''}`} />
         </button>
+        <button
+          type="button"
+          className="sidebar__icon-btn"
+          title="Open calendar"
+          aria-label="Open calendar"
+          onClick={() => openNav('calendar')}
+        >
+          <CalendarIcon size={14} />
+        </button>
+      </div>
+      {open && (
+        <>
+          {events.length > 0 && <p className="sidebar__today-group">Events</p>}
+          {events.map((event) => (
+            <button
+              key={event.id}
+              type="button"
+              className="sidebar__today-row"
+              title={`${event.title} · ${event.time}`}
+              onClick={() => openNav('calendar')}
+            >
+              <span className="sidebar__today-dot" style={{ background: event.color }} />
+              <span className="sidebar__today-time">{event.time}</span>
+              <span className="sidebar__label">{event.title}</span>
+            </button>
+          ))}
+          {todaysTodos.length > 0 && <p className="sidebar__today-group">To do</p>}
+          {todaysTodos.map((todo) => (
+            <div key={todo.id} className="sidebar__today-row" title={todo.title}>
+              <input
+                type="checkbox"
+                className="sidebar__today-check"
+                checked={false}
+                aria-label={`Mark done: ${todo.title || 'Untitled'}`}
+                onChange={() => toggleTodo(todo.id)}
+              />
+              <span className="sidebar__label">
+                {todo.title.trim() || 'Untitled'}{' '}
+                {todo.due !== null && todo.due < today && (
+                  <span className="sidebar__today-overdue">overdue</span>
+                )}
+              </span>
+              {todo.time && <span className="sidebar__today-time">{formatClock(todo.time)}</span>}
+            </div>
+          ))}
+          {count === 0 && (
+            <p className="sidebar__empty">{plannerReady ? 'Nothing on for today.' : 'Loading…'}</p>
+          )}
+        </>
       )}
     </section>
   )
@@ -220,7 +326,12 @@ function Sidebar(): React.JSX.Element {
             className="sidebar__icon-btn sidebar__icon-btn--danger"
             title="Delete note"
             aria-label={`Delete ${note.title || 'Untitled'}`}
-            onClick={() => deleteNote(note.id)}
+            onClick={() => {
+              const label = note.title.trim() || 'Untitled'
+              if (window.confirm(`Delete "${label}"? This cannot be undone.`)) {
+                deleteNote(note.id)
+              }
+            }}
           >
             <TrashIcon size={14} />
           </button>
@@ -256,7 +367,7 @@ function Sidebar(): React.JSX.Element {
       </div>
 
       <div className="sidebar__scroll">
-        <UpcomingEvents />
+        <TodaySection />
 
         <nav className="sidebar__nav" aria-label="Primary">
           {NAV_ITEMS.map((item) => {

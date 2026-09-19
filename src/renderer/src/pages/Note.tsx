@@ -54,7 +54,12 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
             className="icon-btn icon-btn--danger"
             title="Delete note"
             aria-label="Delete note"
-            onClick={() => deleteNote(note.id)}
+            onClick={() => {
+              const label = note.title.trim() || 'Untitled'
+              if (window.confirm(`Delete "${label}"? This cannot be undone.`)) {
+                deleteNote(note.id)
+              }
+            }}
           >
             <TrashIcon size={15} />
           </button>
@@ -69,6 +74,27 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
             placeholder="Untitled"
             spellCheck={false}
             onChange={(event) => updateNote(note.id, { title: event.target.value })}
+            onKeyDown={(event) => {
+              // Keep Tab inside the note: jump into the body editor instead of
+              // tabbing back to the sidebar search box. Ctrl/Cmd+Tab stays
+              // reserved for the global tab switcher.
+              if (
+                event.key === 'Tab' &&
+                !event.shiftKey &&
+                !event.ctrlKey &&
+                !event.metaKey &&
+                !event.altKey
+              ) {
+                event.preventDefault()
+                const blocks = document.querySelector('.blocks')
+                const editor = blocks?.querySelector<HTMLTextAreaElement>('textarea')
+                if (editor) {
+                  editor.focus()
+                } else {
+                  ;(blocks?.querySelector<HTMLElement>('.block') as HTMLElement | null)?.click()
+                }
+              }
+            }}
           />
 
           <BlockEditor

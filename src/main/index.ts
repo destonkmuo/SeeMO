@@ -17,6 +17,10 @@ registerAlarmScheme()
 
 function createWindow(): void {
   // Create the browser window.
+  // Custom chrome: hide the native title bar (no more "SeeMO" strip up top).
+  // On macOS the traffic lights float over the sidebar, so the sidebar
+  // search sits lower to clear them; elsewhere the OS frame stays as-is so
+  // window controls are never lost.
   const mainWindow = new BrowserWindow({
     width: 1500,
     height: 880,
@@ -24,6 +28,12 @@ function createWindow(): void {
     minHeight: 520,
     show: false,
     autoHideMenuBar: true,
+    ...(process.platform === 'darwin'
+      ? {
+          titleBarStyle: 'hiddenInset',
+          trafficLightPosition: { x: 12, y: 14 }
+        }
+      : {}),
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

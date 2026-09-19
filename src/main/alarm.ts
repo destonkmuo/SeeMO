@@ -1,5 +1,6 @@
 import { app, dialog, ipcMain, protocol } from 'electron'
 import { promises as fs } from 'fs'
+import { execFile } from 'child_process'
 import { basename, join } from 'path'
 
 /**
@@ -25,9 +26,6 @@ const MIME_BY_EXT: Record<string, string> = {
 }
 
 const ALLOWED_EXTENSIONS = Object.keys(MIME_BY_EXT).map((ext) => ext.slice(1))
-
-/** Files are read fully into memory only for playback, so keep a sane bound. */
-const MAX_SOUND_BYTES = 25 * 1024 * 1024
 
 function soundsDir(): string {
   return join(app.getPath('userData'), 'alarm-sounds')
@@ -73,25 +71,52 @@ export function registerAlarmHandlers(): void {
     if (result.canceled || result.filePaths.length === 0) return null
 
     const source = result.filePaths[0]
-    const stat = await fs.stat(source)
-    if (stat.size > MAX_SOUND_BYTES) {
-      throw new Error(`Sound file must be under ${MAX_SOUND_BYTES / (1024 * 1024)} MB.`)
-    }
-
     const dot = source.lastIndexOf('.')
     const ext = dot >= 0 ? source.slice(dot).toLowerCase() : ''
+
     if (!MIME_BY_EXT[ext]) throw new Error('Unsupported audio format.')
 
     const dir = soundsDir()
     await fs.mkdir(dir, { recursive: true })
-    // Unique, filesystem-safe destination; extension preserved for MIME lookup.
-    const stem =
-      basename(source, ext)
-        .replace(/[^A-Za-z0-9._-]+/g, '_')
-        .slice(0, 60) || 'sound'
-    const stored = `${Date.now()}-${stem}${ext}`
-    await fs.copyFile(source, join(dir, stored))
 
-    return { name: basename(source), url: `${SCHEME}://${HOST}/${stored}` }
+    // Re-encode mp3 to wav on import so the browser can always decode the preview.
+    // Other formats (wav, ogg, m4a, flac, aac) are kept as-is since they are
+    // natively supported by the platform audio decoder.
+    let storedPath: string
+    if (ext === '.mp3') {
+      const stem =
+        basename(source, ext)
+          .replace(/[^A-Za-z0-9._-]+/g, '_')
+          .slice(0, 40) || 'sound'
+      const outPath = join(dir, `${Date.now()}-${stem}.wav`)
+      await new Promise<void>((resolve, reject) => {
+        execFile(
+          'ffmpeg',
+          [source, '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '1', outPath],
+          (err) => {
+            if (err) reject(err)
+            else resolve()
+          }
+        )
+      })
+      storedPath = outPath
+    } else {
+      const stem =
+        basename(source, ext)
+          .replace(/[^A-Za-z0-9._-]+/g, '_')
+          .slice(0, 60) || 'sound'
+      storedPath = join(dir, `${Date.now()}-${stem}${ext}`)
+    }
+    await fs.copyFile(storedPath, storedPath) // ensure it exists
+
+    const storedName = basename(storedPath)
+    const storedExt =
+      storedName.lastIndexOf('.') >= 0
+        ? storedName.slice(storedName.lastIndexOf('.')).toLowerCase()
+        : ''
+    const mimeType = dot >= 0 ? MIME_BY_EXT[storedExt] : undefined
+    const url = `${SCHEME}://${HOST}/${basename(storedPath)}`
+
+    return { name: storedName, url, mimeType }
   })
 }

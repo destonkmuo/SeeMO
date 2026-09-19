@@ -14,15 +14,16 @@ interface BlockEditorProps {
  *
  * The document is shown as rendered markdown; clicking a block swaps just that
  * block for a textarea containing its raw markdown, so writing and preview are
- * the same surface. Enter splits a block, Backspace at the start merges into
- * the previous one, Shift+Enter adds a line inside the block, Escape leaves
- * edit mode.
+ * the same surface. Enter adds a newline inside the block, Shift+Enter splits
+ * a block, Tab indents (never leaves the editor), Backspace at the start
+ * merges into the previous one, Escape leaves edit mode.
  */
 function BlockEditor({ value, onChange, placeholder }: BlockEditorProps): React.JSX.Element {
   const [blocks, setBlocks] = useState<string[]>(() => splitBlocks(value))
   const [active, setActive] = useState<number | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const caretRef = useRef<number | null>(null)
+  const indentCaretRef = useRef<number | null>(null)
   const syncedRef = useRef(value)
 
   // Adopt changes made elsewhere (vault refresh, note switch) unless the user
@@ -63,11 +64,16 @@ function BlockEditor({ value, onChange, placeholder }: BlockEditorProps): React.
   }, [active])
 
   // Keep the focused block's textarea exactly as tall as its content.
+  // Also restores the caret after a same-block Tab indent.
   useLayoutEffect(() => {
     const el = editorFor(active)
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${el.scrollHeight}px`
+    if (indentCaretRef.current !== null && document.activeElement === el) {
+      el.setSelectionRange(indentCaretRef.current, indentCaretRef.current)
+      indentCaretRef.current = null
+    }
   }, [blocks, active])
 
   const setBlockText = (index: number, text: string): void => {
@@ -84,7 +90,9 @@ function BlockEditor({ value, onChange, placeholder }: BlockEditorProps): React.
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>, index: number): void => {
     const el = event.currentTarget
 
-    if (event.key === 'Enter' && !event.shiftKey) {
+    // Plain Enter stays inside the block (default newline). Shift+Enter
+    // splits the block at the caret into a new block below.
+    if (event.key === 'Enter' && event.shiftKey) {
       event.preventDefault()
       const caret = el.selectionStart
       const text = blocks[index]
@@ -94,6 +102,29 @@ function BlockEditor({ value, onChange, placeholder }: BlockEditorProps): React.
       caretRef.current = 0
       commit(next)
       setActive(index + 1)
+      return
+    }
+
+    // Tab indents inside the editor instead of jumping focus to the sidebar
+    // search box. Shift+Tab outdents when possible. Ctrl/Cmd+Tab is left
+    // alone for the global tab switcher.
+    if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault()
+      const text = blocks[index]
+      const start = el.selectionStart
+      const end = el.selectionEnd
+      if (event.shiftKey) {
+        const before = text.slice(0, start)
+        const remove = before.endsWith('  ') ? 2 : before.endsWith('\t') ? 1 : 0
+        if (remove === 0) return
+        const nextText = text.slice(0, start - remove) + text.slice(end)
+        indentCaretRef.current = start - remove
+        setBlockText(index, nextText)
+        return
+      }
+      const nextText = text.slice(0, start) + '  ' + text.slice(end)
+      indentCaretRef.current = start + 2
+      setBlockText(index, nextText)
       return
     }
 

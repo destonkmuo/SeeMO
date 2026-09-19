@@ -24,6 +24,8 @@
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "electron-updater": "^6.3.9",
+    "highlight.js": "^11.12.0",
+    "katex": "^0.18.7",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

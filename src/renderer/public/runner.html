@@ -1,0 +1,56 @@
+<!doctype html>
+<!--
+  Sandboxed JS runner for note code blocks. Loaded in an
+  <iframe sandbox="allow-scripts"> (opaque origin: no DOM, storage, or
+  Electron access), it receives code via postMessage, captures console
+  output, and posts the lines back. Kept as a real file (not srcdoc) so it
+  loads without inheriting the app's Content-Security-Policy.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+  </head>
+  <body>
+    <script>
+      ;(function () {
+        function fmt(v) {
+          if (typeof v === 'string') return v
+          try {
+            var j = JSON.stringify(v)
+            return j === undefined ? String(v) : j
+          } catch (e) {
+            return String(v)
+          }
+        }
+        window.addEventListener('message', function (e) {
+          var d = e.data
+          if (!d || d.type !== 'seemo-exec' || typeof d.id !== 'number') return
+          var id = d.id
+          var out = []
+          function push(args) {
+            out.push(Array.prototype.map.call(args, fmt).join(' '))
+          }
+          console.log = console.info = console.debug = function () {
+            push(arguments)
+          }
+          console.warn = function () {
+            push(arguments)
+          }
+          console.error = function () {
+            push(arguments)
+          }
+          window.onerror = function (msg) {
+            out.push('Error: ' + msg)
+          }
+          try {
+            var res = (0, eval)(d.code)
+            if (res !== undefined) out.push('=> ' + fmt(res))
+          } catch (err) {
+            out.push(String(err && err.stack ? err.stack : err).split('\n')[0])
+          }
+          parent.postMessage({ source: 'seemo-run', id: id, lines: out }, '*')
+        })
+      })()
+    </script>
+  </body>
+</html>
