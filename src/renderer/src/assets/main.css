@@ -516,6 +516,33 @@ body {
   padding: 4px 10px 12px 6px;
 }
 
+/* Trash pinned to the very bottom, below the scroll region. It caps its own
+   height so a long trash list scrolls in place instead of squeezing notes. */
+.sidebar__trash-footer {
+  flex: none;
+  max-height: 30%;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+  padding: 2px 8px 3px 4px;
+  background: var(--sidebar-bg);
+  font-size: 11px;
+}
+
+/* Compact trash: tighter rows than the notes list above. */
+.sidebar__trash-footer .sidebar__section-head {
+  min-height: 0;
+  padding: 1px 4px;
+}
+
+.sidebar__trash-footer .sidebar__section-title {
+  font-size: 11px;
+}
+
+.sidebar__trash-footer .sidebar__empty-trash {
+  font-size: 10.5px;
+  padding: 2px 6px;
+}
+
 .sidebar__nav {
   display: flex;
   flex-direction: column;
@@ -1145,11 +1172,11 @@ button.sidebar__today-row:hover {
 .sidebar__trash-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
+  gap: 4px;
+  padding: 2px 6px;
   border-radius: 6px;
   color: var(--ev-c-text-3);
-  font-size: 12.5px;
+  font-size: 11px;
 }
 
 .sidebar__trash-row:hover {
@@ -1167,7 +1194,7 @@ button.sidebar__today-row:hover {
 
 .sidebar__trash-days {
   flex: none;
-  font-size: 11px;
+  font-size: 9px;
   color: var(--ev-c-text-3);
 }
 

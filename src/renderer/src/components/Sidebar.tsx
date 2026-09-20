@@ -218,7 +218,7 @@ function Sidebar(): React.JSX.Element {
   }
   const [renamingNoteId, setRenamingNoteId] = useState<string | null>(null)
   const [renameNoteDraft, setRenameNoteDraft] = useState('')
-  const [trashOpen, setTrashOpen] = useState(true)
+  const [trashOpen, setTrashOpen] = useState(false)
   const [resizing, setResizing] = useState(false)
   const dragIdRef = useRef<string | null>(null)
   const sectionDragRef = useRef<string | null>(null)
@@ -903,77 +903,6 @@ function Sidebar(): React.JSX.Element {
                   {ungrouped.map((note) => renderTree(note, 0, []))}
                 </ul>
               )}
-              {trashed.length > 0 && (
-                <div className="sidebar__section-block" aria-label="Trash">
-                  <div className="sidebar__section-head">
-                    <button
-                      type="button"
-                      className="sidebar__section-head--toggle sidebar__trash-head"
-                      aria-expanded={trashOpen}
-                      onClick={() => setTrashOpen((value) => !value)}
-                    >
-                      <span className="sidebar__section-title">
-                        <TrashIcon size={12} />
-                        Trash · {trashed.length}
-                      </span>
-                      <ChevronDownIcon
-                        size={14}
-                        className={`sidebar__chevron${trashOpen ? ' is-open' : ''}`}
-                      />
-                    </button>
-                    <button
-                      type="button"
-                      className="sidebar__empty-trash"
-                      title="Destroy everything in Trash forever"
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `Destroy all ${trashed.length} trashed note${trashed.length === 1 ? '' : 's'} forever? This cannot be undone.`
-                          )
-                        ) {
-                          emptyTrash()
-                        }
-                      }}
-                    >
-                      Empty
-                    </button>
-                  </div>
-                  {trashOpen &&
-                    trashed.map((note) => {
-                      const label = note.title.trim() || 'Untitled'
-                      return (
-                        <div key={note.id} className="sidebar__trash-row" title={label}>
-                          <FileTextIcon size={15} />
-                          <span className="sidebar__label">{label}</span>
-                          <span className="sidebar__trash-days">
-                            {trashDaysLeft(note.deletedAt ?? nowMs, nowMs)} left
-                          </span>
-                          <button
-                            type="button"
-                            className="sidebar__icon-btn"
-                            title={`Restore ${label}`}
-                            aria-label={`Restore ${label}`}
-                            onClick={() => {
-                              restoreNote(note.id)
-                              openNoteInCurrentTab(note.id)
-                            }}
-                          >
-                            <RestoreIcon size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            className="sidebar__icon-btn sidebar__icon-btn--danger"
-                            title={`Destroy ${label} forever`}
-                            aria-label={`Destroy ${label} forever`}
-                            onClick={() => destroyNoteForever(note)}
-                          >
-                            <TrashIcon size={14} />
-                          </button>
-                        </div>
-                      )
-                    })}
-                </div>
-              )}
             </>
           )}
         </div>
@@ -1108,6 +1037,80 @@ function Sidebar(): React.JSX.Element {
             </div>
           )
         })()}
+      {!needle && trashed.length > 0 && (
+        <div className="sidebar__trash-footer">
+          <div className="sidebar__section-block" aria-label="Trash">
+            <div className="sidebar__section-head">
+              <button
+                type="button"
+                className="sidebar__section-head--toggle sidebar__trash-head"
+                aria-expanded={trashOpen}
+                onClick={() => setTrashOpen((value) => !value)}
+              >
+                <span className="sidebar__section-title">
+                  <TrashIcon size={11} />
+                  Trash · {trashed.length}
+                </span>
+                <ChevronDownIcon
+                  size={12}
+                  className={`sidebar__chevron${trashOpen ? ' is-open' : ''}`}
+                />
+              </button>
+              <button
+                type="button"
+                className="sidebar__empty-trash"
+                title="Destroy everything in Trash forever"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Destroy all ${trashed.length} trashed note${trashed.length === 1 ? '' : 's'} forever? This cannot be undone.`
+                    )
+                  ) {
+                    emptyTrash()
+                  }
+                }}
+              >
+                Empty
+              </button>
+            </div>
+            {trashOpen &&
+              trashed.map((note) => {
+                const label = note.title.trim() || 'Untitled'
+                return (
+                  <div key={note.id} className="sidebar__trash-row" title={label}>
+                    <FileTextIcon size={12} />
+                    <span className="sidebar__label">{label}</span>
+                    <span className="sidebar__trash-days">
+                      {trashDaysLeft(note.deletedAt ?? nowMs, nowMs)} left
+                    </span>
+                    <button
+                      type="button"
+                      className="sidebar__icon-btn"
+                      title={`Restore ${label}`}
+                      aria-label={`Restore ${label}`}
+                      onClick={() => {
+                        restoreNote(note.id)
+                        openNoteInCurrentTab(note.id)
+                      }}
+                    >
+                      <RestoreIcon size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      className="sidebar__icon-btn sidebar__icon-btn--danger"
+                      title={`Destroy ${label} forever`}
+                      aria-label={`Destroy ${label} forever`}
+                      onClick={() => destroyNoteForever(note)}
+                    >
+                      <TrashIcon size={11} />
+                    </button>
+                  </div>
+                )
+              })}
+          </div>
+        </div>
+      )}
+
       <div className="sidebar__footer">
         <span className={`sidebar__state sidebar__state--${coreState}`} />
         <span className="sidebar__label">Core: {coreState}</span>
