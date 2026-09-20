@@ -1,6 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
 import {
-  ActivityIcon,
   AgentIcon,
   CalendarIcon,
   GraphIcon,
@@ -25,7 +24,6 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'calendar', label: 'Calendar', icon: CalendarIcon },
   { key: 'email', label: 'Email', icon: MailIcon },
   { key: 'agent', label: 'SeeMO', icon: AgentIcon },
-  { key: 'activity', label: 'SeeMO Activity', icon: ActivityIcon },
   { key: 'misc', label: 'Misc', icon: MoreIcon },
   { key: 'settings', label: 'Settings', icon: SettingsIcon }
 ]

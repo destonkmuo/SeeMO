@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { NAV_BY_KEY, NAV_LABELS } from '../nav'
 import { TAB_GROUP_COLORS, useAppStore, type Tab } from '../store/appStore'
-import { FileTextIcon, ChevronLeftIcon, ChevronRightIcon, SplitIcon, XIcon } from './icons'
+import {
+  FileTextIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  SidebarToggleIcon,
+  SplitIcon,
+  XIcon
+} from './icons'
 
 interface DropHint {
   id: string
@@ -19,6 +26,9 @@ function clampMenu(x: number, y: number): { x: number; y: number } {
     y: Math.max(8, Math.min(y, window.innerHeight - 300))
   }
 }
+
+/** macOS floats the traffic lights over the top-left of the window. */
+const IS_MAC = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
 
 function TabBar(): React.JSX.Element {
   const tabs = useAppStore((state) => state.tabs)
@@ -42,6 +52,8 @@ function TabBar(): React.JSX.Element {
   const deleteTabGroup = useAppStore((state) => state.deleteTabGroup)
   const assignTabToGroup = useAppStore((state) => state.assignTabToGroup)
   const toggleTabGroupCollapsed = useAppStore((state) => state.toggleTabGroupCollapsed)
+  const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed)
+  const toggleSidebar = useAppStore((state) => state.toggleSidebar)
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropHint, setDropHint] = useState<DropHint | null>(null)
@@ -194,7 +206,22 @@ function TabBar(): React.JSX.Element {
   const menuTabGroup = menuTab ? groupOf(menuTab.id) : null
 
   return (
-    <div className="tabbar" role="tablist" aria-label="Open tabs">
+    <div
+      className={`tabbar${sidebarCollapsed && IS_MAC ? ' tabbar--clear-lights' : ''}`}
+      role="tablist"
+      aria-label="Open tabs"
+    >
+      {sidebarCollapsed && (
+        <button
+          type="button"
+          className="tabbar__new tabbar__sidebtn"
+          title="Show sidebar (Ctrl+S)"
+          aria-label="Show sidebar"
+          onClick={toggleSidebar}
+        >
+          <SidebarToggleIcon size={17} />
+        </button>
+      )}
       <div className="tabbar__nav" role="group" aria-label="Switch tabs">
         <button
           type="button"

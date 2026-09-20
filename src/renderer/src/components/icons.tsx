@@ -175,6 +175,41 @@ export function ChevronRightIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+/** Notion-style "hide sidebar" («). */
+export function PanelLeftCloseIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <path d="m11 17-5-5 5-5" />
+      <path d="m18 17-5-5 5-5" />
+    </IconBase>
+  )
+}
+
+/** Notion-style "show sidebar" (»). */
+export function PanelLeftOpenIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <path d="m13 17 5-5-5-5" />
+      <path d="m6 17 5-5-5-5" />
+    </IconBase>
+  )
+}
+
+/** Notion-style sidebar toggle: window outline with a filled left panel. */
+export function SidebarToggleIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path
+        d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5z"
+        fill="currentColor"
+        stroke="none"
+        opacity="0.35"
+      />
+    </IconBase>
+  )
+}
+
 export function GraphIcon(props: IconProps): React.JSX.Element {
   return (
     <IconBase {...props}>

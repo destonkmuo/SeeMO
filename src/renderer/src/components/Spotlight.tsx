@@ -100,10 +100,10 @@ function appCommands(): Command[] {
 }
 
 /**
- * Ctrl+T command search: a centered overlay over everything, searching note
- * titles + contents, tasks, and pages. Content previews are plain text only
- * (no markdown, no images). Enter opens the selection in the current tab,
- * arrows move, Esc closes, click jumps straight there.
+ * Ctrl+T / Ctrl+K command search: a centered overlay over everything,
+ * searching note titles + contents, tasks, and pages. Content previews are
+ * plain text only (no markdown, no images). Enter opens the selection in the
+ * current tab, arrows move, Esc closes, click jumps straight there.
  */
 function Spotlight(): React.JSX.Element | null {
   const [open, setOpen] = useState(false)
@@ -114,9 +114,13 @@ function Spotlight(): React.JSX.Element | null {
   const tasks = useAppStore((state) => state.tasks)
 
   useEffect(() => {
-    // Ctrl+T everywhere, Cmd+T on macOS.
+    // Ctrl+T / Ctrl+K everywhere (Cmd variants on macOS).
     const onKey = (event: KeyboardEvent): void => {
-      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 't') {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        (event.key.toLowerCase() === 't' || event.key.toLowerCase() === 'k')
+      ) {
         event.preventDefault()
         setQuery('')
         setSelected(0)
@@ -271,7 +275,7 @@ function Spotlight(): React.JSX.Element | null {
               }
             }}
           />
-          <kbd className="sidebar__kbd">ctrl/cmd T</kbd>
+          <kbd className="sidebar__kbd">ctrl/cmd T · K</kbd>
         </div>
         <ul className="spotlight__list">
           {results.length === 0 && <li className="spotlight__empty">No matches.</li>}

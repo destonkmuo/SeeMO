@@ -24,6 +24,9 @@ import {
   TrashIcon
 } from './icons'
 
+/** Sidebar search hint shows the macOS ⌘ glyph where it applies. */
+const IS_MAC = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
+
 /** "9:00 AM" from an event start (all-day events have no time part). */
 function formatEventTime(item: CalendarItem): string {
   const time = item.start.dateTime?.split('T')[1]?.slice(0, 5)
@@ -187,6 +190,7 @@ function Sidebar(): React.JSX.Element {
   const setNoteSection = useAppStore((state) => state.setNoteSection)
   const sidebarWidth = useAppStore((state) => state.sidebarWidth)
   const setSidebarWidth = useAppStore((state) => state.setSidebarWidth)
+  const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed)
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropHint, setDropHint] = useState<{ id: string; before: boolean } | null>(null)
@@ -780,9 +784,10 @@ function Sidebar(): React.JSX.Element {
   return (
     <aside
       ref={asideRef}
-      className={`sidebar${resizing ? ' sidebar--resizing' : ''}`}
+      className={`sidebar${resizing ? ' sidebar--resizing' : ''}${sidebarCollapsed ? ' sidebar--collapsed' : ''}`}
       aria-label="Navigation and notes"
-      style={{ width: sidebarWidth }}
+      aria-hidden={sidebarCollapsed || undefined}
+      style={{ width: sidebarCollapsed ? 0 : sidebarWidth }}
     >
       <div className="sidebar__top">
         <label className="sidebar__search">
@@ -794,6 +799,7 @@ function Sidebar(): React.JSX.Element {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          <kbd className="sidebar__kbd">{IS_MAC ? '⌘K' : 'ctrl K'}</kbd>
         </label>
       </div>
 

@@ -14,7 +14,6 @@ import Graph from './pages/Graph'
 import Home from './pages/Home'
 import Misc from './pages/Misc'
 import Note from './pages/Note'
-import Section from './pages/Section'
 import Settings from './pages/Settings'
 import Tasks from './pages/Tasks'
 import { SPLIT_RATIO_DEFAULT, type NavKey, type Tab, useAppStore } from './store/appStore'
@@ -31,7 +30,9 @@ function Content({ active }: { active: NavKey }): React.JSX.Element {
   if (active === 'email') return <Email />
   if (active === 'tasks') return <Tasks />
   if (active === 'misc') return <Misc />
-  return <Section section={active} />
+  // All remaining nav keys have dedicated pages above; this is dead code
+  // kept so a stale persisted tab can never render a blank screen.
+  return <Home />
 }
 
 function renderTab(tab: Tab): ReactNode {
@@ -92,6 +93,24 @@ function App(): React.JSX.Element {
   // any notes that only exist in localStorage yet.
   useEffect(() => {
     void useAppStore.getState().initVault()
+  }, [])
+
+  // Ctrl/Cmd+S toggles the sidebar (there is no save dialog to clash with:
+  // notes persist continuously). preventDefault stops the browser chime.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === 's'
+      ) {
+        event.preventDefault()
+        useAppStore.getState().toggleSidebar()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   // Auto-sync: while enabled, periodically push unpushed vault changes.
@@ -207,6 +226,7 @@ function App(): React.JSX.Element {
 
   return (
     <div className="app">
+      {/* Always mounted: collapsing animates width to zero via CSS. */}
       <Sidebar />
       <div className="app__main">
         <TabBar />

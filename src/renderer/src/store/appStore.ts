@@ -24,7 +24,7 @@ import {
 } from '../planner'
 
 export type NavKey =
-  'home' | 'graph' | 'tasks' | 'calendar' | 'agent' | 'activity' | 'misc' | 'email' | 'settings'
+  'home' | 'graph' | 'tasks' | 'calendar' | 'agent' | 'misc' | 'email' | 'settings'
 
 /** Visual/behavioral state of the core orb. */
 export type CoreState = 'sleep' | 'idle' | 'working' | 'speaking' | 'summoned'
@@ -129,6 +129,8 @@ interface AppState {
   lastSeenAgentId: string | null
   ttsEnabled: boolean
   sidebarWidth: number
+  /** Sidebar hidden (Notion-style collapse). Persists across sessions. */
+  sidebarCollapsed: boolean
   /** Tab pinned in the right split pane; null = no split. */
   splitTabId: string | null
   /** Left-pane share of split-view width, 0..1. */
@@ -144,6 +146,8 @@ interface AppState {
   setBackgroundListening: (enabled: boolean) => void
   setTtsEnabled: (enabled: boolean) => void
   setSidebarWidth: (width: number) => void
+  setSidebarCollapsed: (collapsed: boolean) => void
+  toggleSidebar: () => void
   setSplitTab: (id: string | null) => void
   setSplitRatio: (ratio: number) => void
   markAgentSeen: () => void
@@ -408,6 +412,7 @@ export const useAppStore = create<AppState>()(
       lastSeenAgentId: null,
       ttsEnabled: true,
       sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
+      sidebarCollapsed: false,
       splitTabId: null,
       splitRatio: SPLIT_RATIO_DEFAULT,
       calendarView: 'month',
@@ -421,6 +426,8 @@ export const useAppStore = create<AppState>()(
       setBackgroundListening: (backgroundListening) => set({ backgroundListening }),
       setTtsEnabled: (ttsEnabled) => set({ ttsEnabled }),
       setSidebarWidth: (sidebarWidth) => set({ sidebarWidth: clampSidebarWidth(sidebarWidth) }),
+      setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+      toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
       setSplitTab: (splitTabId) => set({ splitTabId }),
       setSplitRatio: (splitRatio) => set({ splitRatio: clampSplitRatio(splitRatio) }),
       markAgentSeen: () =>
@@ -1345,6 +1352,7 @@ export const useAppStore = create<AppState>()(
         lastSeenAgentId: state.lastSeenAgentId,
         ttsEnabled: state.ttsEnabled,
         sidebarWidth: state.sidebarWidth,
+        sidebarCollapsed: state.sidebarCollapsed,
         splitTabId: state.splitTabId,
         splitRatio: state.splitRatio,
         localCalendarColor: state.localCalendarColor,
@@ -1379,6 +1387,7 @@ export const useAppStore = create<AppState>()(
             | 'lastSeenAgentId'
             | 'ttsEnabled'
             | 'sidebarWidth'
+            | 'sidebarCollapsed'
             | 'splitTabId'
             | 'splitRatio'
             | 'localCalendarColor'
@@ -1394,6 +1403,8 @@ export const useAppStore = create<AppState>()(
           .map((tab): Tab => {
             // Pre-rename sessions saved the task list as kind 'todo'.
             if ((tab as { kind?: string }).kind === 'todo') return { id: tab.id, kind: 'tasks' }
+            // The SeeMO Activity page was removed; land those tabs on Home.
+            if ((tab as { kind?: string }).kind === 'activity') return { id: tab.id, kind: 'home' }
             return tab
           })
           .filter((tab) => tab.kind !== 'note' || noteIds.has(tab.noteId))
@@ -1484,6 +1495,7 @@ export const useAppStore = create<AppState>()(
           backgroundListening: saved.backgroundListening ?? false,
           ttsEnabled: saved.ttsEnabled ?? true,
           sidebarWidth: clampSidebarWidth(saved.sidebarWidth),
+          sidebarCollapsed: saved.sidebarCollapsed ?? false,
           splitTabId:
             saved.splitTabId && tabs.some((t) => t.id === saved.splitTabId)
               ? saved.splitTabId
