@@ -280,6 +280,7 @@ interface AppState {
   updateTask: (id: string, patch: Partial<TaskDraft> & { done?: boolean }) => void
   toggleTask: (id: string) => void
   deleteTask: (id: string) => void
+  clearCompletedTasks: () => void
   addRoutine: (title?: string) => string
   renameRoutine: (id: string, title: string) => void
   deleteRoutine: (id: string) => void
@@ -1710,6 +1711,11 @@ export const useAppStore = create<AppState>()(
       },
       deleteTask: (id) => {
         const tasks = get().tasks.filter((item) => item.id !== id)
+        set({ tasks, plannerError: null })
+        saveTaskFile(tasks, set)
+      },
+      clearCompletedTasks: () => {
+        const tasks = get().tasks.filter((item) => item.status !== 'completed')
         set({ tasks, plannerError: null })
         saveTaskFile(tasks, set)
       },

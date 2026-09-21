@@ -198,6 +198,235 @@ function GithubBackup(): React.JSX.Element {
   )
 }
 
+function LockSettings(): React.JSX.Element {
+  const [status, setStatus] = useState<{
+    passwordSet: boolean
+    biometricKind: 'touch-id' | 'windows-hello' | null
+    biometricAvailable: boolean
+    biometricEnabled: boolean
+  } | null>(null)
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const refresh = async (): Promise<void> => {
+    try {
+      setStatus(await window.api.lock.status())
+    } catch {
+      // Main handlers missing (shouldn't happen) — leave stale state.
+    }
+  }
+
+  useEffect(() => {
+    void refresh()
+  }, [])
+
+  const clearFields = (): void => {
+    setCurrent('')
+    setNext('')
+    setConfirm('')
+  }
+
+  const fail = (err: unknown): void => {
+    setError(err instanceof Error ? err.message : 'Something went wrong.')
+  }
+
+  const enable = async (): Promise<void> => {
+    if (next.length < 4) {
+      setError('Password must be at least 4 characters.')
+      return
+    }
+    if (next !== confirm) {
+      setError('New passwords do not match.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await window.api.lock.setPassword(next)
+      clearFields()
+      await refresh()
+    } catch (err) {
+      fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const change = async (): Promise<void> => {
+    if (next.length < 4) {
+      setError('Password must be at least 4 characters.')
+      return
+    }
+    if (next !== confirm) {
+      setError('New passwords do not match.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const ok = await window.api.lock.verify(current)
+      if (!ok) {
+        setError('Current password is incorrect.')
+        return
+      }
+      await window.api.lock.setPassword(next)
+      clearFields()
+      await refresh()
+    } catch (err) {
+      fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    try {
+      await window.api.lock.remove(current)
+      clearFields()
+      await refresh()
+    } catch (err) {
+      fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const toggleBiometric = async (enabled: boolean): Promise<void> => {
+    setError(null)
+    try {
+      await window.api.lock.setBiometric(enabled)
+      await refresh()
+    } catch (err) {
+      fail(err)
+    }
+  }
+
+  if (!status) return <p className="settings__note">Checking lock status…</p>
+
+  const bioName =
+    status.biometricKind === 'touch-id'
+      ? 'Touch ID'
+      : status.biometricKind === 'windows-hello'
+        ? 'Windows Hello'
+        : 'Biometrics'
+
+  return (
+    <div className="lock-settings">
+      {!status.passwordSet ? (
+        <>
+          <div className="lock-settings__row">
+            <input
+              type="password"
+              className="dlg__input"
+              value={next}
+              placeholder="New password (4+ characters)"
+              aria-label="New password"
+              onChange={(event) => setNext(event.target.value)}
+            />
+            <input
+              type="password"
+              className="dlg__input"
+              value={confirm}
+              placeholder="Confirm password"
+              aria-label="Confirm password"
+              onChange={(event) => setConfirm(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void enable()
+              }}
+            />
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={busy}
+              onClick={() => void enable()}
+            >
+              Enable lock
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <label className="settings__check">
+            <input
+              type="checkbox"
+              checked={status.biometricEnabled}
+              disabled={!status.biometricAvailable}
+              onChange={(event) => void toggleBiometric(event.target.checked)}
+            />
+            {bioName} unlock
+          </label>
+          {!status.biometricAvailable && status.biometricKind !== null && (
+            <p className="settings__note">
+              {bioName} isn&apos;t available on this device (no reader or nothing enrolled).
+            </p>
+          )}
+          {status.biometricKind === null && (
+            <p className="settings__note">
+              Biometric unlock isn&apos;t supported on this platform.
+            </p>
+          )}
+          <div className="lock-settings__row">
+            <input
+              type="password"
+              className="dlg__input"
+              value={current}
+              placeholder="Current password"
+              aria-label="Current password"
+              onChange={(event) => setCurrent(event.target.value)}
+            />
+            <input
+              type="password"
+              className="dlg__input"
+              value={next}
+              placeholder="New password"
+              aria-label="New password"
+              onChange={(event) => setNext(event.target.value)}
+            />
+            <input
+              type="password"
+              className="dlg__input"
+              value={confirm}
+              placeholder="Confirm new password"
+              aria-label="Confirm new password"
+              onChange={(event) => setConfirm(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void change()
+              }}
+            />
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={busy}
+              onClick={() => void change()}
+            >
+              Change
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={busy}
+              title="Removes the app lock"
+              onClick={() => void remove()}
+            >
+              Remove lock
+            </button>
+          </div>
+        </>
+      )}
+      {error && (
+        <p className="miniapp__hint miniapp__error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function Settings(): React.JSX.Element {
   const notes = useAppStore((state) => state.notes)
   const coreState = useAppStore((state) => state.coreState)
@@ -310,6 +539,15 @@ function Settings(): React.JSX.Element {
           <p className="settings__note">
             When on, finished replies are read aloud through the voice pipeline. Requires the Piper
             binary and Alba voice from start.sh.
+          </p>
+        </section>
+
+        <section className="settings__section">
+          <h2 className="settings__section-title">App lock</h2>
+          <LockSettings />
+          <p className="settings__note">
+            Locks the app behind a password at launch. Keeps casual snoopers out; it does not
+            encrypt the vault files on disk.
           </p>
         </section>
 

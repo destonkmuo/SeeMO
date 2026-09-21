@@ -2530,6 +2530,89 @@ button.sidebar__today-row:hover {
   height: 100%;
 }
 
+/* App lock screen: full-stage gate, nothing behind it renders. */
+.lockscreen {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 24px;
+  background: var(--main-bg);
+}
+
+.lockscreen__card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 320px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  animation: drop-hint-in 180ms ease;
+}
+
+.lockscreen__orb {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 4px;
+  border-radius: 22%;
+  box-shadow: 0 0 32px rgba(106, 176, 255, 0.45);
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.lockscreen__title {
+  margin: 0;
+  text-align: center;
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--ev-c-text-1);
+}
+
+.lockscreen__hint {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ev-c-text-3);
+}
+
+.lockscreen__input {
+  margin-top: 6px;
+  user-select: text;
+}
+
+.lockscreen__row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.lockscreen__row .btn {
+  flex: 1;
+}
+
+/* App-lock settings rows. */
+.lock-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lock-settings__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.lock-settings__row .dlg__input {
+  flex: 1;
+  min-width: 160px;
+}
+
 /* Picture-in-picture orb window: transparent stage, draggable body. */
 body.is-orb {
   background: transparent;
@@ -3685,6 +3768,24 @@ button.cal-week__day:hover {
   color: var(--ev-c-text-3);
 }
 
+.task-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.task-group__head .task-group__title {
+  margin-bottom: 0;
+}
+
+.task-group__clear {
+  flex: none;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
 .task-group__hint {
   margin: -4px 0 6px;
   font-size: 12px;
@@ -3723,7 +3824,7 @@ button.cal-week__day:hover {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #b284ff;
+  background: var(--accent);
   box-shadow: 0 0 0 3px var(--main-bg);
 }
 

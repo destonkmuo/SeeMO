@@ -14,9 +14,24 @@ interface VoiceApi {
   fetchIcs: (url: string) => Promise<string>
 }
 
+interface LockApi {
+  status: () => Promise<{
+    passwordSet: boolean
+    biometricKind: 'touch-id' | 'windows-hello' | null
+    biometricAvailable: boolean
+    biometricEnabled: boolean
+  }>
+  setPassword: (password: string) => Promise<boolean>
+  verify: (password: string) => Promise<boolean>
+  remove: (password: string) => Promise<boolean>
+  setBiometric: (enabled: boolean) => Promise<boolean>
+  biometric: () => Promise<boolean>
+}
+
 interface AppApi extends VoiceApi {
   vault: VaultApi
   github: GithubApi
+  lock: LockApi
 }
 
 declare global {

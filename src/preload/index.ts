@@ -58,6 +58,22 @@ const api = {
   importAlarmSound: (): Promise<{ name: string; url: string } | null> =>
     ipcRenderer.invoke('alarm:importSound'),
   fetchIcs: (url: string): Promise<string> => ipcRenderer.invoke('calendar:fetchIcs', url),
+  lock: {
+    status: () =>
+      ipcRenderer.invoke('lock:status') as Promise<{
+        passwordSet: boolean
+        biometricKind: 'touch-id' | 'windows-hello' | null
+        biometricAvailable: boolean
+        biometricEnabled: boolean
+      }>,
+    setPassword: (password: string): Promise<boolean> =>
+      ipcRenderer.invoke('lock:set-password', password),
+    verify: (password: string): Promise<boolean> => ipcRenderer.invoke('lock:verify', password),
+    remove: (password: string): Promise<boolean> => ipcRenderer.invoke('lock:remove', password),
+    setBiometric: (enabled: boolean): Promise<boolean> =>
+      ipcRenderer.invoke('lock:set-biometric', enabled),
+    biometric: (): Promise<boolean> => ipcRenderer.invoke('lock:biometric')
+  },
   github: {
     status: () => ipcRenderer.invoke('github:status'),
     createRepo: (name: string, isPrivate: boolean) =>

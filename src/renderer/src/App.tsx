@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { resolveSoundUrl, startAlarmLoop } from './alarm'
 import { isAlarmDue, nowHHMM } from './time'
 import AgentBubble from './components/AgentBubble'
+import LockScreen, { type LockInfo } from './components/LockScreen'
 import Sidebar from './components/Sidebar'
 import TabBar from './components/TabBar'
 import TabSwitcher from './components/TabSwitcher'
@@ -94,11 +95,32 @@ function App(): React.JSX.Element {
   const splitDragRef = useRef({ x: 0, left: 0 })
   const [resizingSplit, setResizingSplit] = useState(false)
 
+  // App lock: ask the main process whether a password gate exists. Vault
+  // loading waits for unlock, so note contents never enter memory locked.
+  const [lockChecked, setLockChecked] = useState(false)
+  const [unlocked, setUnlocked] = useState(false)
+  const [lockInfo, setLockInfo] = useState<LockInfo | null>(null)
+  useEffect(() => {
+    window.api.lock
+      .status()
+      .then((status) => {
+        setLockInfo({
+          biometricKind: status.biometricKind,
+          biometricAvailable: status.biometricAvailable,
+          biometricEnabled: status.biometricEnabled
+        })
+        setUnlocked(!status.passwordSet)
+      })
+      .catch(() => setUnlocked(true))
+      .finally(() => setLockChecked(true))
+  }, [])
+
   // Load the on-disk vault once: imports existing .md files and writes out
   // any notes that only exist in localStorage yet.
   useEffect(() => {
+    if (!unlocked) return
     void useAppStore.getState().initVault()
-  }, [])
+  }, [unlocked])
 
   // Push the PiP-orb preference to the main process (it can't read renderer
   // storage). Runs only in the main window — the orb renders OrbView instead.
@@ -215,6 +237,34 @@ function App(): React.JSX.Element {
     return () => clearInterval(timer)
   }, [vaultReady])
 
+  // Nightly cleanup: clear finished tasks at 11:59pm local time so each
+  // morning starts fresh. Clearing is idempotent; the first timeout covers
+  // the gap until the next 23:59, then it repeats every 24 hours.
+  useEffect(() => {
+    const clearIfDone = (): void => {
+      const state = useAppStore.getState()
+      if (state.tasks.some((task) => task.status === 'completed')) {
+        state.clearCompletedTasks()
+      }
+    }
+    const msUntilNext2359 = (): number => {
+      const now = new Date()
+      const target = new Date(now)
+      target.setHours(23, 59, 0, 0)
+      if (target.getTime() <= now.getTime()) target.setDate(target.getDate() + 1)
+      return target.getTime() - now.getTime()
+    }
+    let interval: ReturnType<typeof setInterval> | null = null
+    const timeout = setTimeout(() => {
+      clearIfDone()
+      interval = setInterval(clearIfDone, 24 * 60 * 60 * 1000)
+    }, msUntilNext2359())
+    return () => {
+      clearTimeout(timeout)
+      if (interval) clearInterval(interval)
+    }
+  }, [])
+
   let content: ReactNode
   const splitTab =
     splitTabId !== null && splitTabId !== activeTabId
@@ -299,6 +349,22 @@ function App(): React.JSX.Element {
     content = <Note key={activeTab.id} noteId={activeTab.noteId} />
   } else {
     content = <Content active={activeTab.kind} />
+  }
+
+  // Blank stage while checking; lock screen while gated. Nothing behind
+  // it renders, and the vault stays unread until unlock.
+  if (!lockChecked) return <div className="app" aria-hidden="true" />
+  if (!unlocked) {
+    return (
+      <div className="app">
+        <LockScreen
+          info={
+            lockInfo ?? { biometricKind: null, biometricAvailable: false, biometricEnabled: false }
+          }
+          onUnlock={() => setUnlocked(true)}
+        />
+      </div>
+    )
   }
 
   return (

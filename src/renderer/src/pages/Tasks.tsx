@@ -297,6 +297,7 @@ function Tasks(): React.JSX.Element {
   const plannerError = useAppStore((state) => state.plannerError)
   const addRoutine = useAppStore((state) => state.addRoutine)
   const ensureRoutinesToday = useAppStore((state) => state.ensureRoutinesToday)
+  const clearCompletedTasks = useAppStore((state) => state.clearCompletedTasks)
   const [dialog, setDialog] = useState<PlannerDialogTarget | null>(null)
   const [expandedRoutines, setExpandedRoutines] = useState<Set<string>>(new Set())
 
@@ -426,7 +427,17 @@ function Tasks(): React.JSX.Element {
 
             {done.length > 0 && (
               <section className="task-group" aria-label="Completed tasks">
-                <h2 className="task-group__title">Done</h2>
+                <div className="task-group__head">
+                  <h2 className="task-group__title">Done</h2>
+                  <button
+                    type="button"
+                    className="btn btn--ghost task-group__clear"
+                    title="Delete all finished tasks now"
+                    onClick={() => clearCompletedTasks()}
+                  >
+                    Clear finished
+                  </button>
+                </div>
                 {done.map((task) => (
                   <TaskRow key={task.id} task={task} onEdit={edit} />
                 ))}

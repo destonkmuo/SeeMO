@@ -5,6 +5,7 @@ import { registerAlarmHandlers, registerAlarmScheme } from './alarm'
 import { registerCalendarHandlers } from './calendar'
 import { startVoice, stopVoice, speakResponse } from './voice'
 import { registerGithubHandlers } from './github'
+import { registerLockHandlers } from './lock'
 import { registerOrbHandlers, trackMainWindow } from './orb'
 import { registerMediaHandlers, registerMediaScheme } from './media'
 import { registerVaultHandlers } from './vault'
@@ -108,6 +109,9 @@ app.whenReady().then(() => {
 
   // GitHub backup for the vault (status/create/sync via gh + git).
   registerGithubHandlers()
+
+  // App lock: password gate + Touch ID / Windows Hello.
+  registerLockHandlers()
 
   // Picture-in-picture orb + core-state relay between windows.
   registerOrbHandlers()

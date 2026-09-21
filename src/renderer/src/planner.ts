@@ -105,8 +105,8 @@ export function defaultCalendarColor(index: number): string {
   return CALENDAR_COLORS[index % CALENDAR_COLORS.length]
 }
 
-/** Fixed chip color for tasks so they read as work items, not events. */
-export const TASK_COLOR = '#b284ff'
+/** Fixed chip color for tasks: app accent blue, matching the rest of the app. */
+export const TASK_COLOR = '#6ab0ff'
 
 export const CALENDAR_FILE = 'calendar.json'
 export const TASKS_FILE = 'tasks.json'
