@@ -65,6 +65,20 @@ export function MoreIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+/** Six-dot drag grip for reordering blocks. */
+export function GripIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props} fill="currentColor" stroke="none">
+      <circle cx="9" cy="6" r="1.4" />
+      <circle cx="15" cy="6" r="1.4" />
+      <circle cx="9" cy="12" r="1.4" />
+      <circle cx="15" cy="12" r="1.4" />
+      <circle cx="9" cy="18" r="1.4" />
+      <circle cx="15" cy="18" r="1.4" />
+    </IconBase>
+  )
+}
+
 export function HomeIcon(props: IconProps): React.JSX.Element {
   return (
     <IconBase {...props}>

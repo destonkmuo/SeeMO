@@ -1646,6 +1646,70 @@ button.sidebar__today-row:hover {
   padding-bottom: 40px;
 }
 
+/* Row wrapper: owns the hover grip and the drop indicator so both the
+   rendered block and its textarea move as one unit. */
+.block-row {
+  position: relative;
+}
+
+.block-row--dragging {
+  opacity: 0.4;
+}
+
+.block-row--drop-before::before,
+.block-row--drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.block-row--drop-before::before {
+  top: -3px;
+}
+
+.block-row--drop-after::after {
+  bottom: -3px;
+}
+
+/* Notion-style: grip lives in the left gutter, quiet until row hover. */
+.block__grip {
+  position: absolute;
+  left: -30px;
+  top: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--ev-c-text-3);
+  cursor: grab;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.block-row:hover .block__grip {
+  opacity: 0.7;
+}
+
+.block__grip:hover {
+  background: var(--hover-strong);
+  color: var(--ev-c-text-1);
+  opacity: 1;
+}
+
+.block__grip:active {
+  cursor: grabbing;
+}
+
 .block {
   display: flow-root;
   padding: 3px 8px;

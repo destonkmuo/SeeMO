@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { joinBlocks, splitBlocks } from '../markdown'
 import Markdown from './Markdown'
+import { GripIcon } from './icons'
 import type { ImageControls } from '../images'
+
+/** Native DnD payload marking a drag as a block reorder (not a picture). */
+const BLOCK_MIME = 'application/x-seemo-block'
 
 interface BlockEditorProps {
   /** Raw markdown for the whole note. */
@@ -28,10 +32,13 @@ function BlockEditor({
 }: BlockEditorProps): React.JSX.Element {
   const [blocks, setBlocks] = useState<string[]>(() => splitBlocks(value))
   const [active, setActive] = useState<number | null>(null)
+  const [dropHint, setDropHint] = useState<{ index: number; before: boolean } | null>(null)
+  const [draggingId, setDraggingId] = useState<number | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const caretRef = useRef<number | null>(null)
   const indentCaretRef = useRef<number | null>(null)
   const syncedRef = useRef(value)
+  const dragFrom = useRef<number | null>(null)
 
   // Adopt changes made elsewhere (vault refresh, note switch) unless the user
   // is mid-edit.
@@ -87,6 +94,103 @@ function BlockEditor({
     const next = blocks.slice()
     next[index] = text
     commit(next)
+  }
+
+  /** Reorder blocks by drag or keyboard. The editing caret follows its block. */
+  const moveBlock = (from: number, toIndex: number, before: boolean): void => {
+    if (from === toIndex) return
+    const next = blocks.slice()
+    const [moved] = next.splice(from, 1)
+    let insertAt = before ? toIndex : toIndex + 1
+    if (from < insertAt) insertAt -= 1
+    if (insertAt === from) return // dropped back where it was
+    // Keep the caret when the block being edited is the one moving.
+    if (active === from) {
+      const editor = editorFor(active)
+      if (editor) caretRef.current = editor.selectionStart
+    }
+    next.splice(insertAt, 0, moved)
+    commit(next)
+    if (active !== null) {
+      if (active === from) {
+        setActive(insertAt)
+      } else {
+        const shifted = active - (from < active ? 1 : 0)
+        setActive(shifted + (insertAt <= shifted ? 1 : 0))
+      }
+    }
+  }
+
+  const clearDrag = (): void => {
+    dragFrom.current = null
+    setDraggingId(null)
+    setDropHint(null)
+  }
+
+  const onGripDragStart = (event: React.DragEvent<HTMLSpanElement>, index: number): void => {
+    // Grips only render on rendered blocks, but never yank a block out from
+    // under an in-flight structural change either.
+    if (active !== null) {
+      event.preventDefault()
+      return
+    }
+    dragFrom.current = index
+    setDraggingId(index)
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData(BLOCK_MIME, String(index))
+  }
+
+  const hintFromEvent = (
+    event: React.DragEvent<HTMLDivElement>,
+    index: number
+  ): { index: number; before: boolean } => {
+    const box = event.currentTarget.getBoundingClientRect()
+    return { index, before: event.clientY < box.top + box.height / 2 }
+  }
+
+  const onRowDragOver = (event: React.DragEvent<HTMLDivElement>, index: number): void => {
+    if (dragFrom.current === null) return // picture drags belong to the note
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'move'
+    const hint = hintFromEvent(event, index)
+    setDropHint((prev) =>
+      prev && prev.index === hint.index && prev.before === hint.before ? prev : hint
+    )
+  }
+
+  const onRowDrop = (event: React.DragEvent<HTMLDivElement>, index: number): void => {
+    if (dragFrom.current === null) return
+    event.preventDefault()
+    event.stopPropagation()
+    const from = dragFrom.current
+    const hint = hintFromEvent(event, index)
+    clearDrag()
+    moveBlock(from, hint.index, hint.before)
+  }
+
+  // Dropping on the empty area under the last block appends to the end.
+  const onContainerDragOver = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (dragFrom.current === null) return
+    if (event.target !== event.currentTarget) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'move'
+    setDropHint((prev) =>
+      prev && prev.index === blocks.length - 1 && !prev.before
+        ? prev
+        : { index: blocks.length - 1, before: false }
+    )
+  }
+
+  const onContainerDrop = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (dragFrom.current === null) return
+    if (event.target !== event.currentTarget) return
+    event.preventDefault()
+    event.stopPropagation()
+    const from = dragFrom.current
+    clearDrag()
+    moveBlock(from, blocks.length - 1, false)
   }
 
   const activate = (index: number): void => {
@@ -152,6 +256,17 @@ function BlockEditor({
       return
     }
 
+    // Alt+Arrow reorders the block being edited, keeping focus and caret.
+    if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault()
+      if (event.key === 'ArrowUp' && index > 0) {
+        moveBlock(index, index - 1, true)
+      } else if (event.key === 'ArrowDown' && index < blocks.length - 1) {
+        moveBlock(index, index + 1, false)
+      }
+      return
+    }
+
     if (event.key === 'Escape') {
       setActive(null)
     }
@@ -168,39 +283,75 @@ function BlockEditor({
   }
 
   return (
-    <div className="blocks" ref={containerRef} onClick={onContainerClick}>
-      {blocks.map((block, index) =>
-        index === active ? (
-          <textarea
-            key={`edit-${index}`}
-            data-block={index}
-            className="block__input"
-            value={block}
-            rows={1}
-            spellCheck={false}
-            placeholder={index === 0 ? placeholder : ''}
-            onChange={(event) => setBlockText(index, event.target.value)}
-            onKeyDown={(event) => onKeyDown(event, index)}
-            onBlur={() => setActive((current) => (current === index ? null : current))}
-          />
-        ) : (
+    <div
+      className="blocks"
+      ref={containerRef}
+      onClick={onContainerClick}
+      onDragOver={onContainerDragOver}
+      onDrop={onContainerDrop}
+    >
+      {blocks.map((block, index) => {
+        const hint =
+          dropHint && dropHint.index === index
+            ? dropHint.before
+              ? ' block-row--drop-before'
+              : ' block-row--drop-after'
+            : ''
+        const dragging = draggingId === index ? ' block-row--dragging' : ''
+        return (
           <div
-            key={`view-${index}`}
-            className="block markdown"
-            role="button"
-            tabIndex={-1}
-            onClick={() => activate(index)}
+            key={`row-${index}`}
+            className={`block-row${hint}${dragging}`}
+            onDragOver={(event) => onRowDragOver(event, index)}
+            onDrop={(event) => onRowDrop(event, index)}
           >
-            {block.trim() ? (
-              <Markdown source={block} images={images} />
-            ) : (
-              <span className="block__placeholder">
-                {index === 0 ? placeholder : 'Empty block'}
+            {index !== active && (
+              <span
+                className="block__grip"
+                draggable
+                role="button"
+                title="Drag to move block"
+                aria-label={`Drag to move block ${index + 1}`}
+                onClick={(event) => event.stopPropagation()}
+                onDragStart={(event) => onGripDragStart(event, index)}
+                onDragEnd={clearDrag}
+              >
+                <GripIcon size={15} />
               </span>
+            )}
+            {index === active ? (
+              <textarea
+                key={`edit-${index}`}
+                data-block={index}
+                className="block__input"
+                value={block}
+                rows={1}
+                spellCheck={false}
+                placeholder={index === 0 ? placeholder : ''}
+                onChange={(event) => setBlockText(index, event.target.value)}
+                onKeyDown={(event) => onKeyDown(event, index)}
+                onBlur={() => setActive((current) => (current === index ? null : current))}
+              />
+            ) : (
+              <div
+                key={`view-${index}`}
+                className="block markdown"
+                role="button"
+                tabIndex={-1}
+                onClick={() => activate(index)}
+              >
+                {block.trim() ? (
+                  <Markdown source={block} images={images} />
+                ) : (
+                  <span className="block__placeholder">
+                    {index === 0 ? placeholder : 'Empty block'}
+                  </span>
+                )}
+              </div>
             )}
           </div>
         )
-      )}
+      })}
     </div>
   )
 }
