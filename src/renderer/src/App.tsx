@@ -131,6 +131,19 @@ function App(): React.JSX.Element {
           })
         }
       }
+      const pomo = state.pomodoro
+      if (pomo.running && !pomo.ringing && pomo.endsAt !== null && pomo.endsAt <= now) {
+        startAlarmLoop(resolveSoundUrl(pomo.soundId, customUrl))
+        state.updatePomodoro({
+          running: false,
+          ringing: true,
+          leftSec: 0,
+          endsAt: null,
+          // A finished focus session counts toward the long break even if the
+          // user dismisses the ring without auto-advance.
+          completedFocus: pomo.phase === 'focus' ? pomo.completedFocus + 1 : pomo.completedFocus
+        })
+      }
     }
     tick()
     const id = setInterval(tick, 500)

@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react'
 import { BUILT_IN_SOUNDS, previewSound, resolveSoundUrl, stopAlarm } from '../alarm'
 import { AlarmIcon, PlusIcon, StopwatchIcon, TimerIcon, XIcon } from '../components/icons'
-import { useAppStore, type AlarmItem, type StopwatchItem, type TimerItem } from '../store/appStore'
+import {
+  useAppStore,
+  type AlarmItem,
+  type PomodoroPhase,
+  type PomodoroState,
+  type StopwatchItem,
+  type TimerItem
+} from '../store/appStore'
 import { addMinutesHHMM, formatElapsed, formatTime12h, nowHHMM, parseDurationInput } from '../time'
 
 /** Re-render on a heartbeat so countdown/stopwatch faces stay live. */
@@ -14,11 +21,13 @@ function useNowMs(stepMs: number): number {
   return now
 }
 
-/** Stop the shared loop only when no alarm/timer is still ringing. */
+/** Stop the shared loop only when nothing is still ringing. */
 function silenceUnlessRinging(): void {
   const state = useAppStore.getState()
   const ringing =
-    state.alarms.some((alarm) => alarm.ringing) || state.timers.some((timer) => timer.ringing)
+    state.alarms.some((alarm) => alarm.ringing) ||
+    state.timers.some((timer) => timer.ringing) ||
+    state.pomodoro.ringing
   if (!ringing) stopAlarm()
 }
 
@@ -435,6 +444,243 @@ function StopwatchCard({ sw, now }: { sw: StopwatchItem; now: number }): React.J
   )
 }
 
+const POMODORO_LABEL: Record<Exclude<PomodoroPhase, 'idle'>, string> = {
+  focus: 'Focus',
+  break: 'Short break',
+  longBreak: 'Long break'
+}
+
+function pomodoroPhaseMinutes(pomo: PomodoroState, phase: PomodoroPhase): number {
+  if (phase === 'break') return pomo.breakMin
+  if (phase === 'longBreak') return pomo.longBreakMin
+  return pomo.focusMin
+}
+
+/** Next phase after the current one ends (or is skipped). */
+function advancePomodoro(pomo: PomodoroState, startRunning: boolean): Partial<PomodoroState> {
+  const now = Date.now()
+  let phase: PomodoroPhase = 'focus'
+  let completedFocus = pomo.completedFocus
+  if (pomo.phase === 'focus') {
+    phase =
+      completedFocus > 0 && completedFocus % pomo.roundsBeforeLong === 0 ? 'longBreak' : 'break'
+  } else if (pomo.phase === 'break') {
+    phase = 'focus'
+  } else if (pomo.phase === 'longBreak') {
+    phase = 'focus'
+    completedFocus = 0
+  }
+  const minutes = pomodoroPhaseMinutes({ ...pomo, phase }, phase)
+  return {
+    phase,
+    completedFocus,
+    ringing: false,
+    running: startRunning,
+    endsAt: startRunning ? now + minutes * 60 * 1000 : null,
+    leftSec: minutes * 60
+  }
+}
+
+function PomodoroCard({ now }: { now: number }): React.JSX.Element {
+  const pomo = useAppStore((state) => state.pomodoro)
+  const updatePomodoro = useAppStore((state) => state.updatePomodoro)
+
+  const remaining =
+    pomo.running && pomo.endsAt !== null
+      ? Math.max(0, Math.ceil((pomo.endsAt - now) / 1000))
+      : pomo.leftSec
+  const phaseLenSec = Math.max(1, pomodoroPhaseMinutes(pomo, pomo.phase) * 60)
+  const progress = Math.min(1, Math.max(0, 1 - remaining / phaseLenSec))
+  const previewing = !pomo.running && !pomo.ringing && pomo.phase !== 'idle'
+
+  const start = (): void => {
+    stopAlarm()
+    if (pomo.phase === 'idle') {
+      updatePomodoro({
+        phase: 'focus',
+        ringing: false,
+        running: true,
+        endsAt: Date.now() + pomo.focusMin * 60 * 1000,
+        leftSec: pomo.focusMin * 60
+      })
+      return
+    }
+    updatePomodoro({
+      running: true,
+      ringing: false,
+      endsAt: Date.now() + Math.max(0, remaining) * 1000
+    })
+  }
+
+  const pause = (): void => {
+    updatePomodoro({ running: false, leftSec: remaining, endsAt: null })
+  }
+
+  const reset = (): void => {
+    updatePomodoro({
+      phase: 'idle',
+      running: false,
+      ringing: false,
+      endsAt: null,
+      leftSec: pomo.focusMin * 60,
+      completedFocus: 0
+    })
+    silenceUnlessRinging()
+  }
+
+  const skip = (): void => {
+    updatePomodoro(advancePomodoro(pomo, pomo.running))
+    silenceUnlessRinging()
+  }
+
+  const stopRing = (): void => {
+    // Dismissing the ring moves on (running when auto-advance is on).
+    updatePomodoro(advancePomodoro(pomo, pomo.autoAdvance))
+    silenceUnlessRinging()
+  }
+
+  const setMinutes = (key: 'focusMin' | 'breakMin' | 'longBreakMin', value: string): void => {
+    const minutes = Math.min(180, Math.max(1, Math.floor(Number(value) || 0)))
+    if (!minutes) return
+    const patch: Partial<PomodoroState> = {}
+    if (key === 'focusMin') patch.focusMin = minutes
+    else if (key === 'breakMin') patch.breakMin = minutes
+    else patch.longBreakMin = minutes
+    // Retune the live preview when editing the phase on screen (idle shows focus).
+    const phaseKey =
+      pomo.phase === 'break' ? 'breakMin' : pomo.phase === 'longBreak' ? 'longBreakMin' : 'focusMin'
+    if (!pomo.running && !pomo.ringing && key === phaseKey) {
+      patch.leftSec = minutes * 60
+    }
+    updatePomodoro(patch)
+  }
+
+  const dots = Array.from({ length: pomo.roundsBeforeLong }, (_, i) => i)
+
+  return (
+    <section className={`miniapp${pomo.ringing ? ' is-ringing' : ''}`} aria-label="Pomodoro">
+      <header className="miniapp__head">
+        <TimerIcon size={18} />
+        <h3>Pomodoro</h3>
+      </header>
+      <div className="miniapp__row">
+        <span className="pomo__phase">
+          {pomo.phase === 'idle' ? 'Ready' : POMODORO_LABEL[pomo.phase]}
+        </span>
+        <span className="pomo__dots" aria-label={`${pomo.completedFocus} sessions done`}>
+          {dots.map((i) => (
+            <span key={i} className={`pomo__dot${i < pomo.completedFocus ? ' is-done' : ''}`} />
+          ))}
+        </span>
+      </div>
+      <div className="miniapp__clock">{formatElapsed(remaining)}</div>
+      <div className="miniapp__bar">
+        <span style={{ width: `${progress * 100}%` }} />
+      </div>
+      <div className="miniapp__row">
+        {pomo.ringing ? (
+          <button type="button" className="btn btn--primary" onClick={stopRing}>
+            Stop
+          </button>
+        ) : pomo.running ? (
+          <button type="button" className="btn btn--primary" onClick={pause}>
+            Pause
+          </button>
+        ) : (
+          <button type="button" className="btn btn--primary" onClick={start}>
+            {pomo.phase === 'idle' ? 'Start focus' : previewing ? 'Resume' : 'Start'}
+          </button>
+        )}
+        {!pomo.ringing && pomo.phase !== 'idle' && (
+          <button type="button" className="btn btn--ghost" onClick={skip}>
+            Skip
+          </button>
+        )}
+        <button type="button" className="btn btn--ghost" onClick={reset}>
+          Reset
+        </button>
+      </div>
+      {pomo.ringing && (
+        <p className="miniapp__hint">
+          {pomo.phase === 'focus' ? 'Focus done — break time!' : 'Break over — back to focus!'}
+        </p>
+      )}
+      <div className="pomo__settings">
+        <label className="pomo__field">
+          Focus
+          <input
+            type="number"
+            className="dlg__input"
+            min={1}
+            max={180}
+            value={pomo.focusMin}
+            aria-label="Focus minutes"
+            onChange={(event) => setMinutes('focusMin', event.target.value)}
+          />
+        </label>
+        <label className="pomo__field">
+          Break
+          <input
+            type="number"
+            className="dlg__input"
+            min={1}
+            max={60}
+            value={pomo.breakMin}
+            aria-label="Break minutes"
+            onChange={(event) => setMinutes('breakMin', event.target.value)}
+          />
+        </label>
+        <label className="pomo__field">
+          Long
+          <input
+            type="number"
+            className="dlg__input"
+            min={1}
+            max={90}
+            value={pomo.longBreakMin}
+            aria-label="Long break minutes"
+            onChange={(event) => setMinutes('longBreakMin', event.target.value)}
+          />
+        </label>
+        <label className="pomo__field">
+          Every
+          <input
+            type="number"
+            className="dlg__input"
+            min={2}
+            max={12}
+            value={pomo.roundsBeforeLong}
+            aria-label="Sessions before long break"
+            onChange={(event) =>
+              updatePomodoro({
+                roundsBeforeLong: Math.min(
+                  12,
+                  Math.max(2, Math.floor(Number(event.target.value) || 0) || 4)
+                )
+              })
+            }
+          />
+        </label>
+      </div>
+      <label className="settings__check">
+        <input
+          type="checkbox"
+          checked={pomo.autoAdvance}
+          onChange={(event) => updatePomodoro({ autoAdvance: event.target.checked })}
+        />
+        Auto-start next phase
+      </label>
+      <div className="miniapp__row">
+        <SoundSelect
+          label="Pomodoro sound"
+          value={pomo.soundId}
+          onChange={(soundId) => updatePomodoro({ soundId })}
+        />
+      </div>
+    </section>
+  )
+}
+
 function ClockSection({
   icon,
   title,
@@ -513,6 +759,15 @@ function Misc(): React.JSX.Element {
             <p className="miniapp__hint">No timers yet — add one to get started.</p>
           )}
         </ClockSection>
+        <section className="clock-section" aria-label="Pomodoro">
+          <div className="clock-section__head">
+            <TimerIcon size={17} />
+            <h2 className="clock-section__title">Pomodoro</h2>
+          </div>
+          <div className="misc__grid">
+            <PomodoroCard now={now} />
+          </div>
+        </section>
         <ClockSection
           icon={<StopwatchIcon size={17} />}
           title="Stopwatches"

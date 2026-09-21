@@ -124,6 +124,24 @@ export interface StopwatchItem {
   startStamp: number | null
 }
 
+export type PomodoroPhase = 'idle' | 'focus' | 'break' | 'longBreak'
+
+/** Single pomodoro session: focus/break cycles driven by `endsAt`. */
+export interface PomodoroState {
+  focusMin: number
+  breakMin: number
+  longBreakMin: number
+  roundsBeforeLong: number
+  autoAdvance: boolean
+  soundId: string
+  phase: PomodoroPhase
+  running: boolean
+  ringing: boolean
+  endsAt: number | null
+  leftSec: number
+  completedFocus: number
+}
+
 interface AppState {
   coreState: CoreState
   notes: Note[]
@@ -176,6 +194,7 @@ interface AppState {
   timers: TimerItem[]
   /** Stopwatches, driven by accumulated ms + a running start stamp. */
   stopwatches: StopwatchItem[]
+  pomodoro: PomodoroState
   alarmSoundId: string
   customAlarm: { name: string; url: string } | null
   setCoreState: (state: CoreState) => void
@@ -204,6 +223,7 @@ interface AppState {
   addStopwatch: () => string
   removeStopwatch: (id: string) => void
   updateStopwatch: (id: string, patch: Partial<StopwatchItem>) => void
+  updatePomodoro: (patch: Partial<PomodoroState>) => void
   setAlarmSoundId: (id: string) => void
   setCustomAlarm: (custom: { name: string; url: string } | null) => void
   openNav: (kind: NavKey) => void
@@ -482,6 +502,57 @@ function restoreTimers(saved: SavedClocks): TimerItem[] {
   return out
 }
 
+/** Restore the pomodoro session, validating lengths. A phase that expired
+ * while the app was closed comes back ringing; a future one keeps running. */
+function restorePomodoro(saved: SavedClocks & { pomodoro?: unknown }): PomodoroState {
+  const fallback: PomodoroState = {
+    focusMin: 25,
+    breakMin: 5,
+    longBreakMin: 15,
+    roundsBeforeLong: 4,
+    autoAdvance: true,
+    soundId: 'classic',
+    phase: 'idle',
+    running: false,
+    ringing: false,
+    endsAt: null,
+    leftSec: 25 * 60,
+    completedFocus: 0
+  }
+  const item = asRecord(saved.pomodoro)
+  if (!item) return fallback
+  const num = (value: unknown, min: number, max: number, or: number): number => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return or
+    return Math.min(max, Math.max(min, Math.floor(value)))
+  }
+  const focusMin = num(item.focusMin, 1, 180, 25)
+  const phase =
+    item.phase === 'focus' || item.phase === 'break' || item.phase === 'longBreak'
+      ? item.phase
+      : 'idle'
+  const endsAt = typeof item.endsAt === 'number' ? item.endsAt : null
+  const running = item.running === true && endsAt !== null && phase !== 'idle'
+  const expired = running && endsAt !== null && endsAt <= Date.now()
+  return {
+    focusMin,
+    breakMin: num(item.breakMin, 1, 60, 5),
+    longBreakMin: num(item.longBreakMin, 1, 90, 15),
+    roundsBeforeLong: num(item.roundsBeforeLong, 2, 12, 4),
+    autoAdvance: item.autoAdvance !== false,
+    soundId:
+      typeof item.soundId === 'string' && isKnownSoundId(item.soundId) ? item.soundId : 'classic',
+    phase,
+    running: running && !expired,
+    ringing: expired,
+    endsAt: expired ? null : endsAt,
+    leftSec:
+      typeof item.leftSec === 'number' && item.leftSec >= 0
+        ? Math.floor(item.leftSec)
+        : focusMin * 60,
+    completedFocus: num(item.completedFocus, 0, 100, 0)
+  }
+}
+
 /** Restore stopwatches; running ones keep ticking from `startStamp`. */
 function restoreStopwatches(saved: SavedClocks): StopwatchItem[] {
   if (!Array.isArray(saved.stopwatches)) return []
@@ -568,6 +639,20 @@ export const useAppStore = create<AppState>()(
       alarms: [],
       timers: [],
       stopwatches: [],
+      pomodoro: {
+        focusMin: 25,
+        breakMin: 5,
+        longBreakMin: 15,
+        roundsBeforeLong: 4,
+        autoAdvance: true,
+        soundId: 'classic',
+        phase: 'idle',
+        running: false,
+        ringing: false,
+        endsAt: null,
+        leftSec: 25 * 60,
+        completedFocus: 0
+      },
       alarmSoundId: 'classic',
       customAlarm: null,
       setCoreState: (coreState) => set({ coreState }),
@@ -683,6 +768,7 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           stopwatches: state.stopwatches.map((sw) => (sw.id === id ? { ...sw, ...patch } : sw))
         })),
+      updatePomodoro: (patch) => set((state) => ({ pomodoro: { ...state.pomodoro, ...patch } })),
       setAlarmSoundId: (alarmSoundId) => set({ alarmSoundId }),
       setCustomAlarm: (customAlarm) => set({ customAlarm }),
       openNav: (kind) =>
@@ -1573,6 +1659,7 @@ export const useAppStore = create<AppState>()(
         alarms: state.alarms,
         timers: state.timers,
         stopwatches: state.stopwatches,
+        pomodoro: state.pomodoro,
         alarmSoundId: state.alarmSoundId,
         customAlarm: state.customAlarm
       }),
@@ -1609,6 +1696,7 @@ export const useAppStore = create<AppState>()(
             | 'alarms'
             | 'timers'
             | 'stopwatches'
+            | 'pomodoro'
             | 'alarmSoundId'
             | 'customAlarm'
           >
@@ -1724,6 +1812,7 @@ export const useAppStore = create<AppState>()(
           alarms: restoreAlarms(saved),
           timers: restoreTimers(saved),
           stopwatches: restoreStopwatches(saved),
+          pomodoro: restorePomodoro(saved),
           ...restoreAlarmSound(saved),
           lastSeenAgentId
         }
