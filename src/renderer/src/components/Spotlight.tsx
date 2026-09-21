@@ -68,9 +68,16 @@ function appCommands(): Command[] {
     {
       id: 'clear-tabs',
       title: 'Clear all tabs',
-      hint: 'Close everything, back to Home',
+      hint: 'Close ungrouped tabs (groups kept)',
       keywords: 'clear close all tabs reset',
       run: () => api().closeAllTabs()
+    },
+    {
+      id: 'clear-groups',
+      title: 'Clear all groups',
+      hint: 'Close every tab in a group',
+      keywords: 'clear close groups grouped tabs reset',
+      run: () => api().closeAllGroups()
     },
     {
       id: 'empty-trash',
@@ -104,10 +111,10 @@ function appCommands(): Command[] {
 }
 
 /**
- * Ctrl+T / Ctrl+K command search: a centered overlay over everything,
- * searching note titles + contents, tasks, and pages. Content previews are
- * plain text only (no markdown, no images). Enter opens the selection in the
- * current tab, arrows move, Esc closes, click jumps straight there.
+ * Ctrl+T command search: a centered overlay over everything, searching note
+ * titles + contents, tasks, and pages. Content previews are plain text only
+ * (no markdown, no images). Enter opens the selection in the current tab,
+ * arrows move, Esc closes, click jumps straight there.
  */
 function Spotlight(): React.JSX.Element | null {
   const [open, setOpen] = useState(false)
@@ -118,13 +125,12 @@ function Spotlight(): React.JSX.Element | null {
   const tasks = useAppStore((state) => state.tasks)
 
   useEffect(() => {
-    // Ctrl+T / Ctrl+K everywhere (Cmd variants on macOS).
+    // Ctrl+T (either logical modifier). An OS-level Ctrl/Cmd swap is
+    // invisible to apps — only remapped modifiers arrive — so requiring
+    // exactly one of them breaks swapped keyboards. Nothing besides T
+    // opens Spotlight.
     const onKey = (event: KeyboardEvent): void => {
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        !event.altKey &&
-        (event.key.toLowerCase() === 't' || event.key.toLowerCase() === 'k')
-      ) {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 't') {
         event.preventDefault()
         setQuery('')
         setSelected(0)
@@ -279,7 +285,7 @@ function Spotlight(): React.JSX.Element | null {
               }
             }}
           />
-          <kbd className="sidebar__kbd">ctrl/cmd T · K</kbd>
+          <kbd className="sidebar__kbd">^T</kbd>
         </div>
         <ul className="spotlight__list">
           {results.length === 0 && <li className="spotlight__empty">No matches.</li>}
@@ -317,7 +323,7 @@ function Spotlight(): React.JSX.Element | null {
             )
           })}
         </ul>
-        <p className="spotlight__hint">Enter runs · Esc closes · Ctrl/Cmd+T reopens</p>
+        <p className="spotlight__hint">Enter runs · Esc closes · Ctrl+T reopens</p>
       </div>
     </div>
   )

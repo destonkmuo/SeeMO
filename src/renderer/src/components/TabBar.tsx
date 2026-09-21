@@ -1,14 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { NAV_BY_KEY, NAV_LABELS } from '../nav'
 import { TAB_GROUP_COLORS, useAppStore, type Tab } from '../store/appStore'
-import {
-  FileTextIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  SidebarToggleIcon,
-  SplitIcon,
-  XIcon
-} from './icons'
+import { FileTextIcon, ChevronLeftIcon, ChevronRightIcon, SidebarToggleIcon, XIcon } from './icons'
 
 interface DropHint {
   id: string
@@ -60,6 +53,7 @@ function TabBar(): React.JSX.Element {
   const [dropHint, setDropHint] = useState<DropHint | null>(null)
   const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null)
   const [groupDropHint, setGroupDropHint] = useState<DropHint | null>(null)
+  const [tabGroupHint, setTabGroupHint] = useState<string | null>(null)
   const [menu, setMenu] = useState<MenuState>(null)
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -94,6 +88,7 @@ function TabBar(): React.JSX.Element {
     setDropHint(null)
     setDraggingGroupId(null)
     setGroupDropHint(null)
+    setTabGroupHint(null)
   }
 
   // Which side of the hovered tab the dragged tab would land on.
@@ -107,7 +102,11 @@ function TabBar(): React.JSX.Element {
     event.stopPropagation()
     const dragId = dragIdRef.current
     clearDrag()
-    if (dragId && dragId !== tabId) moveTab(dragId, tabId, positionFromEvent(event))
+    if (dragId && dragId !== tabId) {
+      moveTab(dragId, tabId, positionFromEvent(event))
+      const targetGroup = groupOf(tabId)
+      if (groupOf(dragId) !== targetGroup) assignTabToGroup(dragId, targetGroup)
+    }
   }
 
   const onListDrop = (event: React.DragEvent<HTMLDivElement>): void => {
@@ -121,15 +120,28 @@ function TabBar(): React.JSX.Element {
   }
 
   const onGroupDrop = (event: React.DragEvent<HTMLDivElement>, groupId: string): void => {
-    // Let tab drags bubble past the group container to the tab/list handlers.
-    if (!dragGroupRef.current) return
+    // Group-header drags reorder groups; tab drags join the group.
+    // (Tab drops on inner tabs never reach here — they stop propagation.)
+    if (dragGroupRef.current) {
+      event.preventDefault()
+      event.stopPropagation()
+      const dragGroup = dragGroupRef.current
+      clearDrag()
+      if (dragGroup && dragGroup !== groupId) {
+        moveTabGroup(dragGroup, groupId, positionFromEvent(event))
+      }
+      return
+    }
+    const dragId = dragIdRef.current
+    if (!dragId || groupOf(dragId) === groupId) return
     event.preventDefault()
     event.stopPropagation()
-    const dragGroup = dragGroupRef.current
     clearDrag()
-    if (dragGroup && dragGroup !== groupId) {
-      moveTabGroup(dragGroup, groupId, positionFromEvent(event))
-    }
+    assignTabToGroup(dragId, groupId)
+    // Pin after the group's last tab so the bar stays contiguous.
+    const state = useAppStore.getState()
+    const lastInGroup = [...state.tabs].reverse().find((t) => state.tabGroup[t.id] === groupId)
+    if (lastInGroup && lastInGroup.id !== dragId) moveTab(dragId, lastInGroup.id, false)
   }
 
   const startGroupRename = (id: string, name: string): void => {
@@ -174,6 +186,7 @@ function TabBar(): React.JSX.Element {
           // don't swallow them here so the group can be the drop target.
           if (dragGroupRef.current) return
           event.preventDefault()
+          event.stopPropagation()
           event.dataTransfer.dropEffect = 'move'
           if (dragIdRef.current && dragIdRef.current !== tab.id) {
             setDropHint({ id: tab.id, before: positionFromEvent(event) })
@@ -202,17 +215,6 @@ function TabBar(): React.JSX.Element {
             <span className={`tab__dot tab__dot--${coreState}`} title={`Core: ${coreState}`} />
           )}
           <span className="tab__label">{label}</span>
-        </button>
-        <button
-          type="button"
-          className="tab__split"
-          aria-label={`Split view with ${label}`}
-          title={`Split view with ${label}`}
-          onClick={() => {
-            if (tab.id !== activeTabId) setSplitTab(tab.id)
-          }}
-        >
-          <SplitIcon size={13} />
         </button>
         <button
           type="button"
@@ -284,28 +286,37 @@ function TabBar(): React.JSX.Element {
             collapsedTabGroups.includes(group.id) && !groupTabs.some((t) => t.id === activeTabId)
           const renaming = renamingGroupId === group.id
           const groupHint = groupDropHint?.id === group.id ? groupDropHint : null
-          const displayName = group.name.trim() || 'Unnamed group'
+          const displayName = group.name.trim()
           return (
             <div
               key={group.id}
-              className={`tabgroup${draggingGroupId === group.id ? ' tabgroup--dragging' : ''}${groupHint ? (groupHint.before ? ' tabgroup--drop-before' : ' tabgroup--drop-after') : ''}`}
+              className={`tabgroup${draggingGroupId === group.id ? ' tabgroup--dragging' : ''}${groupHint ? (groupHint.before ? ' tabgroup--drop-before' : ' tabgroup--drop-after') : ''}${tabGroupHint === group.id ? ' tabgroup--drop-target' : ''}`}
               style={{ '--group-color': group.color } as CSSProperties}
               onDragOver={(event) => {
-                // Only group-header drags reorder groups; tab drags are
-                // handled by the inner tabs and stop propagation there.
                 if (dragGroupRef.current && dragGroupRef.current !== group.id) {
+                  // Group-header drags reorder groups.
                   event.preventDefault()
                   event.dataTransfer.dropEffect = 'move'
                   setGroupDropHint({ id: group.id, before: positionFromEvent(event) })
+                  return
+                }
+                // Tab drags over the header/padding join the group
+                // (drops on inner tabs stop propagation above).
+                const dragId = dragIdRef.current
+                if (dragId && groupOf(dragId) !== group.id) {
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = 'move'
+                  setTabGroupHint((prev) => (prev === group.id ? prev : group.id))
                 }
               }}
+              onDragLeave={() => setTabGroupHint((prev) => (prev === group.id ? null : prev))}
               onDrop={(event) => onGroupDrop(event, group.id)}
             >
               <button
                 type="button"
                 className="tabgroup__head"
                 draggable={!renaming}
-                title={`${displayName} · click to ${collapsed ? 'expand' : 'collapse'} · double-click to rename · drag to move`}
+                title={`${displayName ? `${displayName} · ` : ''}click to ${collapsed ? 'expand' : 'collapse'} · double-click to rename · drag to move · drop tabs here`}
                 aria-expanded={!collapsed}
                 onClick={() => toggleTabGroupCollapsed(group.id)}
                 onDoubleClick={() => startGroupRename(group.id, group.name)}
@@ -326,7 +337,7 @@ function TabBar(): React.JSX.Element {
                   })
                 }}
               >
-                <span className="tabgroup__dot" />
+                <span className="tabgroup__dot" title={displayName || undefined} />
                 {renaming ? (
                   <input
                     className="tabgroup__input"
@@ -345,8 +356,12 @@ function TabBar(): React.JSX.Element {
                   />
                 ) : (
                   <>
-                    <span className="tabgroup__name">{group.name}</span>
-                    <span className="tabgroup__count">{groupTabs.length}</span>
+                    {displayName && (
+                      <>
+                        <span className="tabgroup__name">{group.name}</span>
+                        <span className="tabgroup__count">{groupTabs.length}</span>
+                      </>
+                    )}
                   </>
                 )}
               </button>
@@ -392,13 +407,16 @@ function TabBar(): React.JSX.Element {
               key={group.id}
               type="button"
               className="note-menu__item"
+              aria-label={
+                group.name.trim() ? `Add to ${group.name.trim()}` : 'Add to unnamed group'
+              }
               onClick={() => {
                 assignTabToGroup(menuTab.id, group.id)
                 setMenu(null)
               }}
             >
               <span className="tabmenu__dot" style={{ background: group.color }} />
-              {group.name.trim() || 'Unnamed group'}
+              {group.name.trim()}
             </button>
           ))}
           {menuTabGroup && (
@@ -415,6 +433,22 @@ function TabBar(): React.JSX.Element {
           )}
           <button
             type="button"
+            className="note-menu__item"
+            disabled={menuTab.id === activeTabId}
+            title={
+              menuTab.id === activeTabId
+                ? 'The active tab cannot split with itself'
+                : 'Show this tab beside the active one'
+            }
+            onClick={() => {
+              setSplitTab(menuTab.id)
+              setMenu(null)
+            }}
+          >
+            Open in split view
+          </button>
+          <button
+            type="button"
             className="note-menu__item note-menu__item--danger"
             onClick={() => {
               setMenu(null)
@@ -429,7 +463,7 @@ function TabBar(): React.JSX.Element {
         <div
           className="note-menu tabmenu"
           role="menu"
-          aria-label={`${menuGroup.name.trim() || 'Unnamed group'} group`}
+          aria-label={`${menuGroup.name.trim() || 'Unnamed'} group`}
           style={{ left: menu.x, top: menu.y }}
           onContextMenu={(event) => event.preventDefault()}
         >

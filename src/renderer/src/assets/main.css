@@ -321,35 +321,12 @@ body {
     color 120ms ease;
 }
 
-.tab__split {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 20px;
-  height: 20px;
-  margin-right: 2px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--ev-c-text-3);
-  cursor: pointer;
-  opacity: 0;
-  transition:
-    opacity 120ms ease,
-    background-color 120ms ease,
-    color 120ms ease;
-}
-
 .tab:hover .tab__close,
-.tab.is-active .tab__close,
-.tab:hover .tab__split,
-.tab.is-active .tab__split {
+.tab.is-active .tab__close {
   opacity: 1;
 }
 
-.tab__close:hover,
-.tab__split:hover {
+.tab__close:hover {
   background: rgba(255, 255, 255, 0.14);
   color: var(--ev-c-text-1);
 }
@@ -636,6 +613,12 @@ body {
   padding: 0 2px 6px;
 }
 
+/* Collapsed: drop the header's bottom padding so it doesn't stack with the
+   card's own padding and leave a gap that looks off-center. */
+.sidebar__events.is-collapsed .sidebar__today-head {
+  padding-bottom: 0;
+}
+
 .sidebar__today-head .sidebar__section-head--toggle {
   display: flex;
   align-items: center;
@@ -725,8 +708,10 @@ button.sidebar__today-row:hover {
 }
 
 .sidebar__today-overdue {
-  font-size: 11px;
-  font-style: normal;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin-left: auto;
   color: var(--danger);
 }
 
@@ -1029,31 +1014,49 @@ button.sidebar__today-row:hover {
   border-color: #fff;
 }
 
-/* Google-style tab groups: an outlined cluster per group. */
+/* Google-style tab groups: an outlined cluster per group. The box is locked
+   to the plain-tab height (min-height + tight padding) so adding, collapsing,
+   or expanding a group never changes the tab bar height and shifts the UI. */
 .tabgroup {
+  position: relative;
   display: flex;
   flex: none;
-  align-items: flex-end;
+  align-items: center;
   gap: 2px;
-  padding: 3px 6px 0;
-  border: 1px solid color-mix(in srgb, var(--group-color) 55%, transparent);
-  border-bottom: none;
-  border-radius: 9px 9px 0 0;
+  min-height: 36px;
+  padding: 0 6px 1px;
   margin-bottom: -1px;
-  padding-bottom: 1px;
+}
+
+/* Solid ownership bar under the group's tabs (the only group color left).
+   Absolutely positioned so it never adds layout height. */
+.tabgroup::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--group-color);
+  pointer-events: none;
 }
 
 .tabgroup__head {
+  position: relative;
+  /* Nudge onto the tab content center line (icon/label middle). The group
+     centers the head, which lands ~3px high; relative offset is visual-only
+     so group/box heights — and the tab bar height — never change. */
+  top: 3px;
   display: flex;
   align-items: center;
   gap: 7px;
   flex: none;
   max-width: 170px;
-  margin-bottom: 4px;
   padding: 4px 8px;
   border: none;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--group-color) 22%, transparent);
+  background: transparent;
   color: var(--ev-c-text-1);
   font: inherit;
   font-size: 12px;
@@ -1078,13 +1081,20 @@ button.sidebar__today-row:hover {
   box-shadow: inset -2px 0 0 var(--accent);
 }
 
+/* A dragged tab hovering the group header/padding joins the group. */
+.tabgroup--drop-target {
+  border-radius: 8px;
+  background: rgba(106, 176, 255, 0.1);
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+
 .tabgroup__head:hover {
-  background: color-mix(in srgb, var(--group-color) 35%, transparent);
+  background: var(--hover-strong);
 }
 
 .tabgroup__dot {
-  width: 9px;
-  height: 9px;
+  width: 13px;
+  height: 13px;
   flex: none;
   border-radius: 50%;
   background: var(--group-color);
@@ -1134,6 +1144,16 @@ button.sidebar__today-row:hover {
 .note-menu__item:hover {
   background: var(--hover-strong);
   color: var(--ev-c-text-1);
+}
+
+.note-menu__item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.note-menu__item:disabled:hover {
+  background: transparent;
+  color: var(--ev-c-text-2);
 }
 
 .note-menu__item--danger {

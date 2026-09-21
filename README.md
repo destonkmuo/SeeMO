@@ -14,7 +14,7 @@ calendar, and a voice-driven assistant.
   and color-coded tab groups.
 - **Collapsible sidebar** — Notion-style toggle, `Ctrl`/`Cmd` + `S` to
   show/hide, width persists across sessions.
-- **Spotlight search** — `Ctrl`/`Cmd` + `T` or `K` to fuzzy-search notes,
+- **Spotlight search** — `Ctrl`/`Cmd` + `T` to fuzzy-search notes,
   tasks, pages, and commands.
 - **Tasks & calendar** — todos with due dates, a month view, local + subscribed
   calendars, and reminders with sound.
@@ -29,7 +29,7 @@ calendar, and a voice-driven assistant.
 | Keys                      | Action                        |
 | ------------------------- | ----------------------------- |
 | `Ctrl`/`Cmd` + `S`        | Toggle sidebar                |
-| `Ctrl`/`Cmd` + `T` or `K` | Spotlight search              |
+| `Ctrl`/`Cmd` + `T`          | Spotlight search              |
 | `Ctrl` + `Tab`            | Tab switcher                  |
 | `Shift` + `Enter`         | Split block while editing     |
 | `Esc`                     | Leave editing / close overlay |

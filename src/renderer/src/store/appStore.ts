@@ -223,6 +223,7 @@ interface AppState {
   openNote: (noteId: string) => void
   closeTab: (id: string) => void
   closeAllTabs: () => void
+  closeAllGroups: () => void
   moveTab: (dragId: string, targetId: string | null, before: boolean) => void
   moveNote: (dragId: string, targetId: string | null, before: boolean) => void
   createSection: (title?: string) => string
@@ -983,16 +984,77 @@ export const useAppStore = create<AppState>()(
           }
         }),
       closeAllTabs: () => {
-        // Clearing everything lands back on Home, never an empty shell.
-        const home = navTab('home')
-        return set({
-          tabs: [home],
-          activeTabId: home.id,
-          splitTabId: null,
-          tabRecency: [home.id],
-          tabHistory: [home.id],
-          historyIndex: 0,
-          tabGroup: {}
+        // Clearing closes ungrouped tabs only; grouped tabs are kept.
+        // With nothing left, land back on Home, never an empty shell.
+        const grouped = (tabs: Tab[], tabGroup: Record<string, string>): Tab[] =>
+          tabs.filter((t) => tabGroup[t.id])
+        return set((state) => {
+          const kept = grouped(state.tabs, state.tabGroup)
+          if (kept.length === 0) {
+            const home = navTab('home')
+            return {
+              tabs: [home],
+              activeTabId: home.id,
+              splitTabId: null,
+              tabRecency: [home.id],
+              tabHistory: [home.id],
+              historyIndex: 0,
+              tabGroup: {}
+            }
+          }
+          const keep = new Set(kept.map((t) => t.id))
+          const activeTabId: string =
+            state.activeTabId !== null && keep.has(state.activeTabId)
+              ? state.activeTabId
+              : kept[0].id
+          const history = pruneHistory(state.tabHistory, state.historyIndex, keep)
+          return {
+            tabs: kept,
+            activeTabId,
+            splitTabId: state.splitTabId && keep.has(state.splitTabId) ? state.splitTabId : null,
+            tabRecency: state.tabRecency.filter((t) => keep.has(t)),
+            ...(history.tabHistory.length > 0
+              ? history
+              : { tabHistory: [activeTabId], historyIndex: 0 }),
+            tabGroup: pruneTabGroupMap(state.tabGroup, keep)
+          }
+        })
+      },
+      closeAllGroups: () => {
+        // Close every tab that belongs to a group, then drop groups left
+        // empty. Un-grouped tabs are untouched.
+        const groupedIds = (state: {
+          tabs: Tab[]
+          tabGroup: Record<string, string>
+        }): Set<string> => new Set(state.tabs.filter((t) => state.tabGroup[t.id]).map((t) => t.id))
+        return set((state) => {
+          const closing = groupedIds(state)
+          if (closing.size === 0) return {}
+          let tabs = state.tabs.filter((t) => !closing.has(t.id))
+          // Never strand the app with zero tabs — fall back to Home.
+          if (tabs.length === 0) {
+            const home = navTab('home')
+            tabs = [home]
+          }
+          const keep = new Set(tabs.map((t) => t.id))
+          const activeTabId: string =
+            state.activeTabId !== null && keep.has(state.activeTabId)
+              ? state.activeTabId
+              : tabs[0].id
+          const history = pruneHistory(state.tabHistory, state.historyIndex, keep)
+          const remainingGroups = new Set(Object.values(pruneTabGroupMap(state.tabGroup, keep)))
+          return {
+            tabs,
+            activeTabId,
+            splitTabId: state.splitTabId && keep.has(state.splitTabId) ? state.splitTabId : null,
+            tabRecency: state.tabRecency.filter((t) => keep.has(t)),
+            ...(history.tabHistory.length > 0
+              ? history
+              : { tabHistory: [activeTabId], historyIndex: 0 }),
+            tabGroup: pruneTabGroupMap(state.tabGroup, keep),
+            tabGroups: state.tabGroups.filter((g) => remainingGroups.has(g.id)),
+            collapsedTabGroups: state.collapsedTabGroups.filter((id) => remainingGroups.has(id))
+          }
         })
       },
       moveTab: (dragId, targetId, before) =>

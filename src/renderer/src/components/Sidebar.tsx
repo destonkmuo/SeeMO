@@ -13,6 +13,7 @@ import {
 import {
   CalendarIcon,
   ChevronDownIcon,
+  ExclamationIcon,
   FileTextIcon,
   GraphIcon,
   MoreIcon,
@@ -23,9 +24,6 @@ import {
   StarIcon,
   TrashIcon
 } from './icons'
-
-/** Sidebar search hint shows the macOS ⌘ glyph where it applies. */
-const IS_MAC = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
 
 /** "9:00 AM" from an event start (all-day events have no time part). */
 function formatEventTime(item: CalendarItem): string {
@@ -94,7 +92,7 @@ function TodaySection(): React.JSX.Element {
   const count = events.length + todaysTasks.length
 
   return (
-    <section className="sidebar__events" aria-label="Today">
+    <section className={`sidebar__events${open ? '' : ' is-collapsed'}`} aria-label="Today">
       <div className="sidebar__section-head sidebar__today-head">
         <button
           type="button"
@@ -142,13 +140,18 @@ function TodaySection(): React.JSX.Element {
                 aria-label={`Mark done: ${task.title || 'Untitled'}`}
                 onChange={() => toggleTask(task.id)}
               />
-              <span className="sidebar__label">
-                {task.title.trim() || 'Untitled'}{' '}
-                {task.due !== null && task.due < today && (
-                  <span className="sidebar__today-overdue">overdue</span>
-                )}
-              </span>
+              <span className="sidebar__label">{task.title.trim() || 'Untitled'}</span>
               {task.time && <span className="sidebar__today-time">{formatClock(task.time)}</span>}
+              {task.due !== null && task.due < today && (
+                <span
+                  className="sidebar__today-overdue"
+                  title="Overdue"
+                  aria-label="Overdue"
+                  role="img"
+                >
+                  <ExclamationIcon size={12} />
+                </span>
+              )}
             </div>
           ))}
           {count === 0 && (
@@ -449,6 +452,36 @@ function Sidebar(): React.JSX.Element {
       destroyNote(note.id)
     }
   }
+
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // Ctrl+K focuses sidebar search, per the ^K chip. Either logical
+  // modifier counts so OS-level Ctrl/Cmd swaps keep working. Skipped while
+  // Spotlight owns the keyboard; expands a collapsed sidebar first.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === 'k'
+      ) {
+        if (document.querySelector('.spotlight')) return
+        event.preventDefault()
+        const state = useAppStore.getState()
+        if (state.sidebarCollapsed) {
+          state.setSidebarCollapsed(false)
+          // Retry past the collapse transition: the sidebar stays
+          // visibility:hidden (unfocusable) until the slide finishes.
+          window.setTimeout(() => searchInputRef.current?.focus(), 300)
+        } else {
+          searchInputRef.current?.focus()
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Esc closes the row/space menus.
   useEffect(() => {
@@ -793,13 +826,14 @@ function Sidebar(): React.JSX.Element {
         <label className="sidebar__search">
           <SearchIcon size={15} />
           <input
+            ref={searchInputRef}
             type="search"
             className="sidebar__search-input"
             placeholder="Search or ask"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <kbd className="sidebar__kbd">{IS_MAC ? '⌘K' : 'ctrl K'}</kbd>
+          <kbd className="sidebar__kbd">^K</kbd>
         </label>
       </div>
 
