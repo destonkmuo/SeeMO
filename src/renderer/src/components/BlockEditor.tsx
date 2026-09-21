@@ -39,6 +39,8 @@ function BlockEditor({
   const indentCaretRef = useRef<number | null>(null)
   const syncedRef = useRef(value)
   const dragFrom = useRef<number | null>(null)
+  // Pre-move row rects keyed by block text, consumed once for the FLIP glide.
+  const flipRef = useRef<Map<string, DOMRect[]> | null>(null)
 
   // Adopt changes made elsewhere (vault refresh, note switch) unless the user
   // is mid-edit.
@@ -96,6 +98,39 @@ function BlockEditor({
     commit(next)
   }
 
+  // After any reorder, glide rows from their old positions (FLIP) instead
+  // of jumping. Keyed by block text; unmatched rows simply appear.
+  useLayoutEffect(() => {
+    const map = flipRef.current
+    flipRef.current = null
+    if (!map || !containerRef.current) return
+    if (
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return
+    }
+    const used = new Map<string, number>()
+    const rows = containerRef.current.querySelectorAll('.block-row')
+    blocks.forEach((text, index) => {
+      const el = rows[index] as HTMLElement | undefined
+      if (!el) return
+      const list = map.get(text)
+      if (!list) return
+      const seen = used.get(text) ?? 0
+      used.set(text, seen + 1)
+      const old = list[seen]
+      if (!old) return
+      const dy = old.top - el.getBoundingClientRect().top
+      if (Math.abs(dy) > 2) {
+        el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }], {
+          duration: 240,
+          easing: 'cubic-bezier(0.32, 0.72, 0, 1)'
+        })
+      }
+    })
+  }, [blocks])
+
   /** Reorder blocks by drag or keyboard. The editing caret follows its block. */
   const moveBlock = (from: number, toIndex: number, before: boolean): void => {
     if (from === toIndex) return
@@ -104,6 +139,19 @@ function BlockEditor({
     let insertAt = before ? toIndex : toIndex + 1
     if (from < insertAt) insertAt -= 1
     if (insertAt === from) return // dropped back where it was
+    // Snapshot row positions for the FLIP glide after commit.
+    const rows = containerRef.current?.querySelectorAll('.block-row')
+    if (rows) {
+      const map = new Map<string, DOMRect[]>()
+      blocks.forEach((text, index) => {
+        const el = rows[index] as HTMLElement | undefined
+        if (!el) return
+        const list = map.get(text) ?? []
+        list.push(el.getBoundingClientRect())
+        map.set(text, list)
+      })
+      flipRef.current = map
+    }
     // Keep the caret when the block being edited is the one moving.
     if (active === from) {
       const editor = editorFor(active)

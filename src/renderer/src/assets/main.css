@@ -1666,6 +1666,16 @@ button.sidebar__today-row:hover {
   border-radius: 1px;
   background: var(--accent);
   pointer-events: none;
+  animation: drop-hint-in 160ms ease;
+}
+
+@keyframes drop-hint-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .block-row--drop-before::before {
@@ -1680,7 +1690,8 @@ button.sidebar__today-row:hover {
 .block__grip {
   position: absolute;
   left: -30px;
-  top: 4px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
