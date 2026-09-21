@@ -1,7 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { respondTo } from '../agentBrain'
 import JarvisCore from '../components/JarvisCore'
-import { SendIcon, TrashIcon } from '../components/icons'
+import {
+  SendIcon,
+  TrashIcon,
+  VolumeIcon,
+  VolumeMutedIcon,
+  MicIcon,
+  MicMutedIcon
+} from '../components/icons'
 import { type CoreState, useAppStore } from '../store/appStore'
 
 const STATES: { key: CoreState; label: string; hint: string }[] = [
@@ -21,6 +28,10 @@ function Agent(): React.JSX.Element {
   const messages = useAppStore((state) => state.messages)
   const addChatMessage = useAppStore((state) => state.addChatMessage)
   const clearChat = useAppStore((state) => state.clearChat)
+  const ttsEnabled = useAppStore((state) => state.ttsEnabled)
+  const setTtsEnabled = useAppStore((state) => state.setTtsEnabled)
+  const micMuted = useAppStore((state) => state.micMuted)
+  const setMicMuted = useAppStore((state) => state.setMicMuted)
 
   const [draft, setDraft] = useState('')
   const [pendingReply, setPendingReply] = useState(false)
@@ -57,6 +68,28 @@ function Agent(): React.JSX.Element {
       <div className="agent__stage">
         <div className="agent__core">
           <JarvisCore />
+          <div className="agent__mutes" aria-label="Audio controls">
+            <button
+              type="button"
+              className={`agent__mute-btn${micMuted ? ' is-muted' : ''}`}
+              title={micMuted ? 'Unmute microphone' : 'Mute microphone'}
+              aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
+              aria-pressed={micMuted}
+              onClick={() => setMicMuted(!micMuted)}
+            >
+              {micMuted ? <MicMutedIcon size={20} /> : <MicIcon size={20} />}
+            </button>
+            <button
+              type="button"
+              className={`agent__mute-btn${ttsEnabled ? '' : ' is-muted'}`}
+              title={ttsEnabled ? 'Mute spoken replies' : 'Unmute spoken replies'}
+              aria-label={ttsEnabled ? 'Mute spoken replies' : 'Unmute spoken replies'}
+              aria-pressed={!ttsEnabled}
+              onClick={() => setTtsEnabled(!ttsEnabled)}
+            >
+              {ttsEnabled ? <VolumeIcon size={20} /> : <VolumeMutedIcon size={20} />}
+            </button>
+          </div>
         </div>
         <div className="agent__controls">
           {STATES.map((s) =>
@@ -81,6 +114,26 @@ function Agent(): React.JSX.Element {
             <span className={`chat__dot chat__dot--${coreState}`} />
             {coreState}
           </span>
+          <button
+            type="button"
+            className={`chat__clear chat__mute${micMuted ? ' is-muted' : ''}`}
+            title={micMuted ? 'Unmute microphone' : 'Mute microphone'}
+            aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
+            aria-pressed={micMuted}
+            onClick={() => setMicMuted(!micMuted)}
+          >
+            {micMuted ? <MicMutedIcon size={14} /> : <MicIcon size={14} />}
+          </button>
+          <button
+            type="button"
+            className={`chat__clear chat__mute${ttsEnabled ? '' : ' is-muted'}`}
+            title={ttsEnabled ? 'Mute spoken replies' : 'Unmute spoken replies'}
+            aria-label={ttsEnabled ? 'Mute spoken replies' : 'Unmute spoken replies'}
+            aria-pressed={!ttsEnabled}
+            onClick={() => setTtsEnabled(!ttsEnabled)}
+          >
+            {ttsEnabled ? <VolumeIcon size={14} /> : <VolumeMutedIcon size={14} />}
+          </button>
           <button
             type="button"
             className="chat__clear"

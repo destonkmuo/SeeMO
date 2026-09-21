@@ -369,3 +369,46 @@ export function ExclamationIcon(props: IconProps): React.JSX.Element {
     </IconBase>
   )
 }
+
+export function VolumeIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <path d="M11 5 6 9H2v6h4l5 4z" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+      <path d="M18.6 5.4a9 9 0 0 1 0 13.2" />
+    </IconBase>
+  )
+}
+
+export function VolumeMutedIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <path d="M11 5 6 9H2v6h4l5 4z" />
+      <path d="m22 9-6 6" />
+      <path d="m16 9 6 6" />
+    </IconBase>
+  )
+}
+
+export function MicIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <rect x="9" y="2" width="6" height="12" rx="3" />
+      <path d="M5 10a7 7 0 0 0 14 0" />
+      <path d="M12 17v4" />
+      <path d="M8 21h8" />
+    </IconBase>
+  )
+}
+
+export function MicMutedIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <rect x="9" y="2" width="6" height="12" rx="3" />
+      <path d="M5 10a7 7 0 0 0 14 0" />
+      <path d="M12 17v4" />
+      <path d="M8 21h8" />
+      <path d="m3 3 18 18" />
+    </IconBase>
+  )
+}

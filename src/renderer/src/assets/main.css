@@ -1295,6 +1295,27 @@ button.sidebar__today-row:hover {
   color: var(--ev-c-text-3);
 }
 
+.sidebar__footer .sidebar__label {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar__footer-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+.sidebar__footer-btn.is-muted {
+  background: rgba(255, 157, 46, 0.16);
+  color: #ff9d2e;
+}
+
+.sidebar__footer-btn.is-muted:hover {
+  background: rgba(255, 157, 46, 0.24);
+  color: #ff9d2e;
+}
+
 .sidebar__state {
   width: 8px;
   height: 8px;
@@ -1485,29 +1506,6 @@ button.sidebar__today-row:hover {
 /* Picture drag-and-drop target ring. */
 .note__scroll.is-drop-target {
   box-shadow: inset 0 0 0 2px var(--accent);
-}
-
-/* One-line capability cheat-sheet pinned under the document. */
-.note__hints {
-  display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  justify-content: center;
-  padding: 8px 20px 12px;
-  font-size: 11px;
-  color: var(--ev-c-text-3);
-  user-select: none;
-}
-
-.note__hints kbd {
-  padding: 0 5px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.04);
-  font-family: inherit;
-  font-size: 10.5px;
-  color: var(--ev-c-text-2);
 }
 
 .note__doc {
@@ -2518,6 +2516,7 @@ button.sidebar__today-row:hover {
   /* Fits beside the chat panel: viewport height minus tab bar and stage
      chrome, or the stage width — whichever is tighter — so the orb never
      leaves the frame. */
+  position: relative;
   width: min(calc(100vh - 170px), 100%);
   max-width: 1500px;
   aspect-ratio: 1;
@@ -2529,6 +2528,24 @@ button.sidebar__today-row:hover {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* Picture-in-picture orb window: transparent stage, draggable body. */
+body.is-orb {
+  background: transparent;
+}
+
+.orb {
+  width: 100vw;
+  height: 100vh;
+  cursor: pointer;
+  -webkit-app-region: drag;
+  animation: drop-hint-in 200ms ease;
+}
+
+.orb:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .jarvis-core--unsupported {
@@ -2545,6 +2562,48 @@ button.sidebar__today-row:hover {
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
+}
+
+/* Mute controls overlaid on the bottom of SeeMO's model — absolutely
+   positioned so they take zero layout space and never push the status
+   pills down. */
+.agent__mutes {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.agent__mute-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ev-c-text-1);
+  cursor: pointer;
+}
+
+.agent__mute-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.agent__mute-btn.is-muted {
+  background: rgba(255, 157, 46, 0.16);
+  border-color: rgba(255, 157, 46, 0.5);
+  color: #ff9d2e;
+}
+
+.agent__mute-btn.is-muted:hover {
+  background: rgba(255, 157, 46, 0.24);
 }
 
 /* --------------------------------------------------------------------- chat */
@@ -2641,6 +2700,16 @@ button.sidebar__today-row:hover {
 .chat__clear:hover {
   background: rgba(255, 80, 80, 0.14);
   color: var(--danger);
+}
+
+.chat__mute:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ev-c-text-1);
+}
+
+.chat__mute.is-muted {
+  background: rgba(255, 157, 46, 0.16);
+  color: #ff9d2e;
 }
 
 .chat__messages {

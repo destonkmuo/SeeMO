@@ -175,8 +175,10 @@ interface AppState {
   messages: ChatMessage[]
   autoSync: boolean
   backgroundListening: boolean
+  orbEnabled: boolean
   lastSeenAgentId: string | null
   ttsEnabled: boolean
+  micMuted: boolean
   sidebarWidth: number
   /** Sidebar hidden (Notion-style collapse). Persists across sessions. */
   sidebarCollapsed: boolean
@@ -197,7 +199,9 @@ interface AppState {
   setCoreState: (state: CoreState) => void
   setAutoSync: (enabled: boolean) => void
   setBackgroundListening: (enabled: boolean) => void
+  setOrbEnabled: (enabled: boolean) => void
   setTtsEnabled: (enabled: boolean) => void
+  setMicMuted: (muted: boolean) => void
   setSidebarWidth: (width: number) => void
   setSidebarCollapsed: (collapsed: boolean) => void
   toggleSidebar: () => void
@@ -692,8 +696,10 @@ export const useAppStore = create<AppState>()(
       plannerError: null,
       autoSync: false,
       backgroundListening: false,
+      orbEnabled: true,
       lastSeenAgentId: null,
       ttsEnabled: true,
+      micMuted: false,
       sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
       sidebarCollapsed: false,
       splitTabId: null,
@@ -722,7 +728,9 @@ export const useAppStore = create<AppState>()(
       setCoreState: (coreState) => set({ coreState }),
       setAutoSync: (autoSync) => set({ autoSync }),
       setBackgroundListening: (backgroundListening) => set({ backgroundListening }),
+      setOrbEnabled: (orbEnabled) => set({ orbEnabled }),
       setTtsEnabled: (ttsEnabled) => set({ ttsEnabled }),
+      setMicMuted: (micMuted) => set({ micMuted }),
       setSidebarWidth: (sidebarWidth) => set({ sidebarWidth: clampSidebarWidth(sidebarWidth) }),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
@@ -1928,8 +1936,10 @@ export const useAppStore = create<AppState>()(
         messages: state.messages.slice(-MAX_CHAT_MESSAGES),
         autoSync: state.autoSync,
         backgroundListening: state.backgroundListening,
+        orbEnabled: state.orbEnabled,
         lastSeenAgentId: state.lastSeenAgentId,
         ttsEnabled: state.ttsEnabled,
+        micMuted: state.micMuted,
         sidebarWidth: state.sidebarWidth,
         sidebarCollapsed: state.sidebarCollapsed,
         splitTabId: state.splitTabId,
@@ -1964,8 +1974,10 @@ export const useAppStore = create<AppState>()(
             | 'messages'
             | 'autoSync'
             | 'backgroundListening'
+            | 'orbEnabled'
             | 'lastSeenAgentId'
             | 'ttsEnabled'
+            | 'micMuted'
             | 'sidebarWidth'
             | 'sidebarCollapsed'
             | 'splitTabId'
@@ -2075,6 +2087,7 @@ export const useAppStore = create<AppState>()(
           autoSync: saved.autoSync ?? false,
           backgroundListening: saved.backgroundListening ?? false,
           ttsEnabled: saved.ttsEnabled ?? true,
+          micMuted: saved.micMuted ?? false,
           sidebarWidth: clampSidebarWidth(saved.sidebarWidth),
           sidebarCollapsed: saved.sidebarCollapsed ?? false,
           splitTabId:

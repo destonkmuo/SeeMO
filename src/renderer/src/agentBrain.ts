@@ -29,6 +29,8 @@ export function buildReply(text: string, noteCount: number): string {
 function streamReply(id: string, full: string, mySeq: number, onSpeaking?: () => void): void {
   const store = useAppStore.getState()
   store.setCoreState('speaking')
+  // The PiP orb lives in another window: mirror agent-side states to it.
+  window.api.announceCore('speaking')
   onSpeaking?.()
   let shown = 0
   const step = Math.max(2, Math.ceil(full.length / 60))
@@ -48,7 +50,9 @@ function streamReply(id: string, full: string, mySeq: number, onSpeaking?: () =>
       }
       timers.push(
         setTimeout(() => {
-          if (seq === mySeq) useAppStore.getState().setCoreState('idle')
+          if (seq !== mySeq) return
+          useAppStore.getState().setCoreState('idle')
+          window.api.announceCore('idle')
         }, 1400)
       )
     }

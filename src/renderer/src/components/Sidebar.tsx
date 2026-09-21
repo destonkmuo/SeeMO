@@ -16,6 +16,8 @@ import {
   ExclamationIcon,
   FileTextIcon,
   GraphIcon,
+  MicIcon,
+  MicMutedIcon,
   MoreIcon,
   PlusIcon,
   RestoreIcon,
@@ -194,6 +196,8 @@ function Sidebar(): React.JSX.Element {
   const sidebarWidth = useAppStore((state) => state.sidebarWidth)
   const setSidebarWidth = useAppStore((state) => state.setSidebarWidth)
   const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed)
+  const micMuted = useAppStore((state) => state.micMuted)
+  const setMicMuted = useAppStore((state) => state.setMicMuted)
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropHint, setDropHint] = useState<{ id: string; before: boolean } | null>(null)
@@ -1150,12 +1154,22 @@ function Sidebar(): React.JSX.Element {
         <span className="sidebar__label">Core: {coreState}</span>
         <button
           type="button"
-          className="sidebar__icon-btn"
+          className={`sidebar__icon-btn sidebar__footer-btn${micMuted ? ' is-muted' : ''}`}
+          title={micMuted ? 'Unmute microphone' : 'Mute microphone'}
+          aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
+          aria-pressed={micMuted}
+          onClick={() => setMicMuted(!micMuted)}
+        >
+          {micMuted ? <MicMutedIcon size={18} /> : <MicIcon size={18} />}
+        </button>
+        <button
+          type="button"
+          className="sidebar__icon-btn sidebar__footer-btn"
           title="Settings"
           aria-label="Settings"
           onClick={() => openNav('settings')}
         >
-          <SettingsIcon size={15} />
+          <SettingsIcon size={20} />
         </button>
       </div>
       <div

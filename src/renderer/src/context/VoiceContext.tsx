@@ -63,9 +63,11 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   }, [])
 
   // Wake-word hits arrive ahead of any transcript: flash `summoned` briefly.
+  // Ignored while the mic is muted.
   useEffect(() => {
     return window.api.onVoiceWake(() => {
-      const { setCoreState } = useAppStore.getState()
+      const { setCoreState, micMuted } = useAppStore.getState()
+      if (micMuted) return
       if (summonedTimer.current) clearTimeout(summonedTimer.current)
       setCoreState('summoned')
       summonedTimer.current = setTimeout(() => setCoreState('idle'), SUMMONED_TIMEOUT_MS)
@@ -73,13 +75,16 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   }, [])
 
   // Receive transcriptions forwarded from the main process.
+  // Dropped entirely while the mic is muted so muted speech never lands in
+  // the chat, drives the orb, or triggers background replies.
   useEffect(() => {
     return window.api.onVoiceTranscript((text) => {
+      const { setCoreState, addChatMessage, backgroundListening, micMuted } = useAppStore.getState()
+      if (micMuted) return
       setTranscripts((prev) => [...prev, { id: crypto.randomUUID(), text, timestamp: Date.now() }])
 
       // Drive the core animation from voice activity. getState() avoids
       // re-rendering this provider on every state change.
-      const { setCoreState, addChatMessage, backgroundListening } = useAppStore.getState()
       setCoreState('working')
       // Spoken commands also land in the SeeMO chat as user messages.
       addChatMessage('user', text)

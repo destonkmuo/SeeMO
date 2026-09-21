@@ -542,6 +542,32 @@ function BlockEditor({
       return
     }
 
+    // Plain Up/Down at the block's edge passes into the neighboring block
+    // (Notion-style); otherwise the caret moves within the textarea.
+    if (!event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      const text = blocks[index] ?? ''
+      const start = el.selectionStart
+      const end = el.selectionEnd
+      if (start === end) {
+        if (event.key === 'ArrowDown' && !text.slice(end).includes('\n')) {
+          if (index < blocks.length - 1) {
+            event.preventDefault()
+            caretRef.current = Math.min(start, (blocks[index + 1] ?? '').length)
+            setActive(index + 1)
+          }
+          return
+        }
+        if (event.key === 'ArrowUp' && !text.slice(0, start).includes('\n')) {
+          if (index > 0) {
+            event.preventDefault()
+            caretRef.current = Math.min(start, (blocks[index - 1] ?? '').length)
+            setActive(index - 1)
+          }
+          return
+        }
+      }
+    }
+
     // Alt+Arrow reorders the block being edited, keeping focus and caret.
     if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       event.preventDefault()

@@ -203,6 +203,8 @@ function Settings(): React.JSX.Element {
   const coreState = useAppStore((state) => state.coreState)
   const backgroundListening = useAppStore((state) => state.backgroundListening)
   const setBackgroundListening = useAppStore((state) => state.setBackgroundListening)
+  const orbEnabled = useAppStore((state) => state.orbEnabled)
+  const setOrbEnabled = useAppStore((state) => state.setOrbEnabled)
   const ttsEnabled = useAppStore((state) => state.ttsEnabled)
   const setTtsEnabled = useAppStore((state) => state.setTtsEnabled)
   const vaultPath = useAppStore((state) => state.vaultPath)
@@ -293,6 +295,18 @@ function Settings(): React.JSX.Element {
             />
             Spoken replies (Piper · Alba medium)
           </label>
+          <label className="settings__check">
+            <input
+              type="checkbox"
+              checked={orbEnabled}
+              onChange={(event) => setOrbEnabled(event.target.checked)}
+            />
+            Picture-in-picture orb
+          </label>
+          <p className="settings__note">
+            When on, minimizing or hiding the app leaves SeeMO hovering in a small always-on-top
+            window. Click it to bring the app back.
+          </p>
           <p className="settings__note">
             When on, finished replies are read aloud through the voice pipeline. Requires the Piper
             binary and Alba voice from start.sh.

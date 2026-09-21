@@ -362,36 +362,6 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
       {findOpen && note && (
         <FindBar scope={noteRef} content={note.content} onClose={() => setFindOpen(false)} />
       )}
-
-      <footer className="note__hints" aria-label="Editor shortcuts">
-        <span>
-          <kbd>Shift</kbd>+<kbd>Enter</kbd> new block
-        </span>
-        <span>
-          <kbd>Enter</kbd> newline
-        </span>
-        <span>
-          <kbd>Tab</kbd> indent
-        </span>
-        <span>
-          <kbd>$…$</kbd> math
-        </span>
-        <span>
-          <kbd>```js</kbd> + Go
-        </span>
-        <span>
-          <kbd>[[link]]</kbd> pages
-        </span>
-        <span>
-          <kbd>img</kbd> hover → Unlock
-        </span>
-        <span>
-          <kbd>Ctrl</kbd>+<kbd>F</kbd> find
-        </span>
-        <span>
-          <kbd>/</kbd> insert
-        </span>
-      </footer>
     </main>
   )
 }

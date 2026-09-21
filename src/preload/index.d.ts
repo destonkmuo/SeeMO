@@ -5,6 +5,10 @@ import type { VaultApi } from './vault'
 interface VoiceApi {
   onVoiceTranscript: (callback: (text: string) => void) => () => void
   onVoiceWake: (callback: () => void) => () => void
+  onCoreRemote: (callback: (state: string) => void) => () => void
+  announceCore: (state: string) => void
+  focusApp: () => Promise<void>
+  setOrbEnabled: (enabled: boolean) => void
   speak: (text: string) => Promise<boolean>
   importAlarmSound: () => Promise<{ name: string; url: string } | null>
   fetchIcs: (url: string) => Promise<string>

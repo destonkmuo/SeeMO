@@ -37,6 +37,22 @@ const api = {
       ipcRenderer.removeListener('voice:wake', listener)
     }
   },
+  /** Core-state pulses from sibling windows (speaking/idle from the agent). */
+  onCoreRemote: (callback: (state: string) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, state: string): void => callback(state)
+    ipcRenderer.on('core:remote', listener)
+    return () => {
+      ipcRenderer.removeListener('core:remote', listener)
+    }
+  },
+  announceCore: (state: string): void => {
+    ipcRenderer.send('core:announce', state)
+  },
+  /** Orb window: bring the main window back (restores + focuses it). */
+  focusApp: (): Promise<void> => ipcRenderer.invoke('orb:focus-app'),
+  setOrbEnabled: (enabled: boolean): void => {
+    ipcRenderer.send('orb:set-enabled', enabled)
+  },
   vault,
   speak: (text: string): Promise<boolean> => ipcRenderer.invoke('voice:speak', text),
   importAlarmSound: (): Promise<{ name: string; url: string } | null> =>

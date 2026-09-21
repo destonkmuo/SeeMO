@@ -1,10 +1,11 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, nativeImage, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerAlarmHandlers, registerAlarmScheme } from './alarm'
 import { registerCalendarHandlers } from './calendar'
 import { startVoice, stopVoice, speakResponse } from './voice'
 import { registerGithubHandlers } from './github'
+import { registerOrbHandlers, trackMainWindow } from './orb'
 import { registerMediaHandlers, registerMediaScheme } from './media'
 import { registerVaultHandlers } from './vault'
 import icon from '../../resources/icon.png?asset'
@@ -43,6 +44,8 @@ function createWindow(): void {
     }
   })
 
+  trackMainWindow(mainWindow)
+
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
   })
@@ -67,6 +70,14 @@ function createWindow(): void {
 app.whenReady().then(() => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
+
+  // Dev runs on macOS execute inside Electron.app, whose own bundle icon
+  // lands in the dock. Override it at runtime so dev shows the real icon
+  // too (packaged builds already carry build/icon.icns — no override).
+  if (is.dev && process.platform === 'darwin' && app.dock) {
+    const dockIcon = nativeImage.createFromPath(icon)
+    if (!dockIcon.isEmpty()) app.dock.setIcon(dockIcon)
+  }
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -97,6 +108,9 @@ app.whenReady().then(() => {
 
   // GitHub backup for the vault (status/create/sync via gh + git).
   registerGithubHandlers()
+
+  // Picture-in-picture orb + core-state relay between windows.
+  registerOrbHandlers()
 
   createWindow()
 

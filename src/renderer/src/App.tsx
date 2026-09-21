@@ -100,6 +100,13 @@ function App(): React.JSX.Element {
     void useAppStore.getState().initVault()
   }, [])
 
+  // Push the PiP-orb preference to the main process (it can't read renderer
+  // storage). Runs only in the main window — the orb renders OrbView instead.
+  const orbEnabled = useAppStore((state) => state.orbEnabled)
+  useEffect(() => {
+    window.api.setOrbEnabled(orbEnabled)
+  }, [orbEnabled])
+
   // Clock watcher: fires due alarms and expired timers wherever you are in
   // the app (the Misc page only displays them). Timestamps are the source of
   // truth; this just flips flags and starts the shared sound loop.
