@@ -21,6 +21,9 @@ import { SPLIT_RATIO_DEFAULT, type NavKey, type Tab, useAppStore } from './store
 /** How often auto-sync checks for unpushed vault changes. */
 const AUTO_SYNC_INTERVAL_MS = 30000
 
+/** How often the calendar pulls fresh events (local files + subscriptions). */
+const CALENDAR_REFRESH_INTERVAL_MS = 5 * 60 * 1000
+
 function Content({ active }: { active: NavKey }): React.JSX.Element {
   if (active === 'agent') return <Agent />
   if (active === 'home') return <Home />
@@ -137,6 +140,28 @@ function App(): React.JSX.Element {
     const timer = setInterval(tick, AUTO_SYNC_INTERVAL_MS)
     return () => clearInterval(timer)
   }, [autoSync, vaultReady])
+
+  // Calendar auto-refresh: re-pull local files + subscriptions every
+  // 5 minutes so new/changed events appear without a restart.
+  // Guarded against overlap; loadPlanner() no-ops its migrations on rerun.
+  useEffect(() => {
+    if (!vaultReady) return
+    const refreshingRef = { current: false }
+    const timer = setInterval(() => {
+      if (refreshingRef.current) return
+      refreshingRef.current = true
+      useAppStore
+        .getState()
+        .loadPlanner()
+        .catch((error) => {
+          console.error('[planner] auto-refresh failed', error)
+        })
+        .finally(() => {
+          refreshingRef.current = false
+        })
+    }, CALENDAR_REFRESH_INTERVAL_MS)
+    return () => clearInterval(timer)
+  }, [vaultReady])
 
   let content: ReactNode
   const splitTab =
