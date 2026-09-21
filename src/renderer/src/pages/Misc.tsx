@@ -5,11 +5,18 @@ import {
   useAppStore,
   type AlarmItem,
   type PomodoroPhase,
-  type PomodoroState,
   type StopwatchItem,
   type TimerItem
 } from '../store/appStore'
-import { addMinutesHHMM, formatElapsed, formatTime12h, nowHHMM, parseDurationInput } from '../time'
+import {
+  addMinutesHHMM,
+  advancePomodoroTimer,
+  formatElapsed,
+  formatTime12h,
+  nowHHMM,
+  parseDurationInput,
+  pomodoroPhaseMinutes
+} from '../time'
 
 /** Re-render on a heartbeat so countdown/stopwatch faces stay live. */
 function useNowMs(stepMs: number): number {
@@ -25,9 +32,7 @@ function useNowMs(stepMs: number): number {
 function silenceUnlessRinging(): void {
   const state = useAppStore.getState()
   const ringing =
-    state.alarms.some((alarm) => alarm.ringing) ||
-    state.timers.some((timer) => timer.ringing) ||
-    state.pomodoro.ringing
+    state.alarms.some((alarm) => alarm.ringing) || state.timers.some((timer) => timer.ringing)
   if (!ringing) stopAlarm()
 }
 
@@ -265,19 +270,67 @@ function AlarmCard({ alarm }: { alarm: AlarmItem }): React.JSX.Element {
   )
 }
 
+const POMODORO_LABEL: Record<Exclude<PomodoroPhase, 'idle'>, string> = {
+  focus: 'Focus',
+  break: 'Short break',
+  longBreak: 'Long break'
+}
+
 function TimerCard({ timer, now }: { timer: TimerItem; now: number }): React.JSX.Element {
   const updateTimer = useAppStore((state) => state.updateTimer)
   const removeTimer = useAppStore((state) => state.removeTimer)
   const [draft, setDraft] = useState(() => formatDurationDraft(timer.totalSec))
+  const isPomo = timer.kind === 'pomodoro'
 
   const remaining =
     timer.running && timer.endsAt !== null
       ? Math.max(0, Math.ceil((timer.endsAt - now) / 1000))
       : timer.leftSec
+
+  const pause = (): void => {
+    updateTimer(timer.id, { running: false, leftSec: remaining, endsAt: null })
+  }
+
+  const resume = (): void => {
+    if (remaining <= 0) return
+    updateTimer(timer.id, { running: true, endsAt: Date.now() + remaining * 1000 })
+  }
+
+  const onDelete = (): void => {
+    removeTimer(timer.id)
+    silenceUnlessRinging()
+  }
+
+  const switchKind = (kind: TimerItem['kind']): void => {
+    if (kind === timer.kind) return
+    if (kind === 'pomodoro') {
+      updateTimer(timer.id, {
+        kind,
+        phase: 'idle',
+        running: false,
+        ringing: false,
+        endsAt: null,
+        leftSec: timer.focusMin * 60,
+        completedFocus: 0
+      })
+    } else {
+      updateTimer(timer.id, {
+        kind,
+        phase: 'idle',
+        running: false,
+        ringing: false,
+        endsAt: null,
+        leftSec: timer.totalSec
+      })
+      setDraft(formatDurationDraft(timer.totalSec))
+    }
+    silenceUnlessRinging()
+  }
+
+  // --- simple countdown ---
   const idle = !timer.running && !timer.ringing
   const paused = idle && remaining > 0 && remaining < timer.totalSec
-
-  const start = (): void => {
+  const startSimple = (): void => {
     const seconds = parseDurationInput(draft)
     if (seconds === null) return
     stopAlarm()
@@ -289,17 +342,7 @@ function TimerCard({ timer, now }: { timer: TimerItem; now: number }): React.JSX
       ringing: false
     })
   }
-
-  const pause = (): void => {
-    updateTimer(timer.id, { running: false, leftSec: remaining, endsAt: null })
-  }
-
-  const resume = (): void => {
-    if (remaining <= 0) return
-    updateTimer(timer.id, { running: true, endsAt: Date.now() + remaining * 1000 })
-  }
-
-  const reset = (): void => {
+  const resetSimple = (): void => {
     updateTimer(timer.id, {
       running: false,
       ringing: false,
@@ -309,13 +352,71 @@ function TimerCard({ timer, now }: { timer: TimerItem; now: number }): React.JSX
     setDraft(formatDurationDraft(timer.totalSec))
     silenceUnlessRinging()
   }
+  const simpleProgress = timer.totalSec
+    ? Math.min(1, Math.max(0, 1 - remaining / timer.totalSec))
+    : 0
 
-  const onDelete = (): void => {
-    removeTimer(timer.id)
+  // --- pomodoro cycle ---
+  const phaseLenSec = Math.max(1, pomodoroPhaseMinutes(timer, timer.phase) * 60)
+  const pomoProgress = Math.min(1, Math.max(0, 1 - remaining / phaseLenSec))
+  const previewing = isPomo && !timer.running && !timer.ringing && timer.phase !== 'idle'
+  const pomoStart = (): void => {
+    stopAlarm()
+    if (timer.phase === 'idle') {
+      updateTimer(timer.id, {
+        phase: 'focus',
+        ringing: false,
+        running: true,
+        endsAt: Date.now() + timer.focusMin * 60 * 1000,
+        leftSec: timer.focusMin * 60
+      })
+      return
+    }
+    updateTimer(timer.id, {
+      running: true,
+      ringing: false,
+      endsAt: Date.now() + Math.max(0, remaining) * 1000
+    })
+  }
+  const pomoStop = (): void => {
+    updateTimer(timer.id, advancePomodoroTimer(timer, timer.autoAdvance, Date.now()))
     silenceUnlessRinging()
   }
-
-  const progress = timer.totalSec ? Math.min(1, Math.max(0, 1 - remaining / timer.totalSec)) : 0
+  const pomoSkip = (): void => {
+    updateTimer(timer.id, advancePomodoroTimer(timer, timer.running, Date.now()))
+    silenceUnlessRinging()
+  }
+  const pomoReset = (): void => {
+    updateTimer(timer.id, {
+      phase: 'idle',
+      running: false,
+      ringing: false,
+      endsAt: null,
+      leftSec: timer.focusMin * 60,
+      completedFocus: 0
+    })
+    silenceUnlessRinging()
+  }
+  const setMinutes = (key: 'focusMin' | 'breakMin' | 'longBreakMin', value: string): void => {
+    const minutes = Math.min(180, Math.max(1, Math.floor(Number(value) || 0)))
+    if (!minutes) return
+    const patch: Partial<TimerItem> = {}
+    if (key === 'focusMin') patch.focusMin = minutes
+    else if (key === 'breakMin') patch.breakMin = minutes
+    else patch.longBreakMin = minutes
+    const phaseKey =
+      timer.phase === 'break'
+        ? 'breakMin'
+        : timer.phase === 'longBreak'
+          ? 'longBreakMin'
+          : 'focusMin'
+    if (!timer.running && !timer.ringing && key === phaseKey) {
+      patch.leftSec = minutes * 60
+    }
+    updateTimer(timer.id, patch)
+  }
+  const dots = Array.from({ length: timer.roundsBeforeLong }, (_, i) => i)
+  const busy = timer.running || timer.ringing
 
   return (
     <section className={`miniapp${timer.ringing ? ' is-ringing' : ''}`} aria-label={timer.label}>
@@ -332,21 +433,182 @@ function TimerCard({ timer, now }: { timer: TimerItem; now: number }): React.JSX
         />
         <DeleteButton label={timer.label} onDelete={onDelete} />
       </header>
-      <div className="miniapp__clock">{formatElapsed(remaining)}</div>
-      <div className="miniapp__bar">
-        <span style={{ width: `${progress * 100}%` }} />
+      <div className="kind-toggle" role="group" aria-label={`${timer.label} type`}>
+        {(['simple', 'pomodoro'] as const).map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            className={`kind-toggle__btn${timer.kind === kind ? ' is-active' : ''}`}
+            aria-pressed={timer.kind === kind}
+            disabled={busy}
+            title={busy ? 'Stop the timer to change its type' : `Use as ${kind} timer`}
+            onClick={() => switchKind(kind)}
+          >
+            {kind === 'simple' ? 'Countdown' : 'Pomodoro'}
+          </button>
+        ))}
       </div>
-      <div className="miniapp__row">
-        <input
-          className="dlg__input"
-          aria-label={`${timer.label} duration (MM:SS)`}
-          value={draft}
-          placeholder="MM:SS"
-          spellCheck={false}
-          disabled={timer.running || paused}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-      </div>
+      {!isPomo && (
+        <>
+          <div className="miniapp__clock">{formatElapsed(remaining)}</div>
+          <div className="miniapp__bar">
+            <span style={{ width: `${simpleProgress * 100}%` }} />
+          </div>
+          <div className="miniapp__row">
+            <input
+              className="dlg__input"
+              aria-label={`${timer.label} duration (MM:SS)`}
+              value={draft}
+              placeholder="MM:SS"
+              spellCheck={false}
+              disabled={timer.running || paused}
+              onChange={(event) => setDraft(event.target.value)}
+            />
+          </div>
+          <div className="miniapp__row">
+            {timer.ringing ? (
+              <button type="button" className="btn btn--primary" onClick={resetSimple}>
+                Stop
+              </button>
+            ) : timer.running ? (
+              <button type="button" className="btn btn--primary" onClick={pause}>
+                Pause
+              </button>
+            ) : paused ? (
+              <button type="button" className="btn btn--primary" onClick={resume}>
+                Resume
+              </button>
+            ) : (
+              <button type="button" className="btn btn--primary" onClick={startSimple}>
+                Start
+              </button>
+            )}
+            <button type="button" className="btn btn--ghost" onClick={resetSimple}>
+              Reset
+            </button>
+          </div>
+          {timer.ringing && <p className="miniapp__hint">Time&apos;s up!</p>}
+          {idle && !timer.ringing && (
+            <p className="miniapp__hint">
+              {paused ? 'Paused — resume or reset.' : 'Set a duration and start.'}
+            </p>
+          )}
+        </>
+      )}
+      {isPomo && (
+        <>
+          <div className="miniapp__row">
+            <span className="pomo__phase">
+              {timer.phase === 'idle' ? 'Ready' : POMODORO_LABEL[timer.phase]}
+            </span>
+            <span className="pomo__dots" aria-label={`${timer.completedFocus} sessions done`}>
+              {dots.map((i) => (
+                <span
+                  key={i}
+                  className={`pomo__dot${i < timer.completedFocus ? ' is-done' : ''}`}
+                />
+              ))}
+            </span>
+          </div>
+          <div className="miniapp__clock">{formatElapsed(remaining)}</div>
+          <div className="miniapp__bar">
+            <span style={{ width: `${pomoProgress * 100}%` }} />
+          </div>
+          <div className="miniapp__row">
+            {timer.ringing ? (
+              <button type="button" className="btn btn--primary" onClick={pomoStop}>
+                Stop
+              </button>
+            ) : timer.running ? (
+              <button type="button" className="btn btn--primary" onClick={pause}>
+                Pause
+              </button>
+            ) : (
+              <button type="button" className="btn btn--primary" onClick={pomoStart}>
+                {timer.phase === 'idle' ? 'Start focus' : previewing ? 'Resume' : 'Start'}
+              </button>
+            )}
+            {!timer.ringing && timer.phase !== 'idle' && (
+              <button type="button" className="btn btn--ghost" onClick={pomoSkip}>
+                Skip
+              </button>
+            )}
+            <button type="button" className="btn btn--ghost" onClick={pomoReset}>
+              Reset
+            </button>
+          </div>
+          {timer.ringing && (
+            <p className="miniapp__hint">
+              {timer.phase === 'focus' ? 'Focus done — break time!' : 'Break over — back to focus!'}
+            </p>
+          )}
+          <div className="pomo__settings">
+            <label className="pomo__field">
+              Focus
+              <input
+                type="number"
+                className="dlg__input"
+                min={1}
+                max={180}
+                value={timer.focusMin}
+                aria-label={`${timer.label} focus minutes`}
+                onChange={(event) => setMinutes('focusMin', event.target.value)}
+              />
+            </label>
+            <label className="pomo__field">
+              Break
+              <input
+                type="number"
+                className="dlg__input"
+                min={1}
+                max={60}
+                value={timer.breakMin}
+                aria-label={`${timer.label} break minutes`}
+                onChange={(event) => setMinutes('breakMin', event.target.value)}
+              />
+            </label>
+            <label className="pomo__field">
+              Long
+              <input
+                type="number"
+                className="dlg__input"
+                min={1}
+                max={90}
+                value={timer.longBreakMin}
+                aria-label={`${timer.label} long break minutes`}
+                onChange={(event) => setMinutes('longBreakMin', event.target.value)}
+              />
+            </label>
+            <label className="pomo__field">
+              Every
+              <input
+                type="number"
+                className="dlg__input"
+                min={2}
+                max={12}
+                value={timer.roundsBeforeLong}
+                aria-label={`${timer.label} sessions before long break`}
+                onChange={(event) =>
+                  updateTimer(timer.id, {
+                    roundsBeforeLong: Math.min(
+                      12,
+                      Math.max(2, Math.floor(Number(event.target.value) || 0) || 4)
+                    )
+                  })
+                }
+              />
+            </label>
+          </div>
+          <label className="settings__check">
+            <input
+              type="checkbox"
+              checked={timer.autoAdvance}
+              onChange={(event) => updateTimer(timer.id, { autoAdvance: event.target.checked })}
+            />
+            Auto-start next phase
+          </label>
+        </>
+      )}
       <div className="miniapp__row">
         <SoundSelect
           label={`${timer.label} sound`}
@@ -354,34 +616,6 @@ function TimerCard({ timer, now }: { timer: TimerItem; now: number }): React.JSX
           onChange={(soundId) => updateTimer(timer.id, { soundId })}
         />
       </div>
-      <div className="miniapp__row">
-        {timer.ringing ? (
-          <button type="button" className="btn btn--primary" onClick={reset}>
-            Stop
-          </button>
-        ) : timer.running ? (
-          <button type="button" className="btn btn--primary" onClick={pause}>
-            Pause
-          </button>
-        ) : paused ? (
-          <button type="button" className="btn btn--primary" onClick={resume}>
-            Resume
-          </button>
-        ) : (
-          <button type="button" className="btn btn--primary" onClick={start}>
-            Start
-          </button>
-        )}
-        <button type="button" className="btn btn--ghost" onClick={reset}>
-          Reset
-        </button>
-      </div>
-      {timer.ringing && <p className="miniapp__hint">Time&apos;s up!</p>}
-      {idle && !timer.ringing && (
-        <p className="miniapp__hint">
-          {paused ? 'Paused — resume or reset.' : 'Set a duration and start.'}
-        </p>
-      )}
     </section>
   )
 }
@@ -440,243 +674,6 @@ function StopwatchCard({ sw, now }: { sw: StopwatchItem; now: number }): React.J
         </button>
       </div>
       <p className="miniapp__hint">Hundredths precision while running.</p>
-    </section>
-  )
-}
-
-const POMODORO_LABEL: Record<Exclude<PomodoroPhase, 'idle'>, string> = {
-  focus: 'Focus',
-  break: 'Short break',
-  longBreak: 'Long break'
-}
-
-function pomodoroPhaseMinutes(pomo: PomodoroState, phase: PomodoroPhase): number {
-  if (phase === 'break') return pomo.breakMin
-  if (phase === 'longBreak') return pomo.longBreakMin
-  return pomo.focusMin
-}
-
-/** Next phase after the current one ends (or is skipped). */
-function advancePomodoro(pomo: PomodoroState, startRunning: boolean): Partial<PomodoroState> {
-  const now = Date.now()
-  let phase: PomodoroPhase = 'focus'
-  let completedFocus = pomo.completedFocus
-  if (pomo.phase === 'focus') {
-    phase =
-      completedFocus > 0 && completedFocus % pomo.roundsBeforeLong === 0 ? 'longBreak' : 'break'
-  } else if (pomo.phase === 'break') {
-    phase = 'focus'
-  } else if (pomo.phase === 'longBreak') {
-    phase = 'focus'
-    completedFocus = 0
-  }
-  const minutes = pomodoroPhaseMinutes({ ...pomo, phase }, phase)
-  return {
-    phase,
-    completedFocus,
-    ringing: false,
-    running: startRunning,
-    endsAt: startRunning ? now + minutes * 60 * 1000 : null,
-    leftSec: minutes * 60
-  }
-}
-
-function PomodoroCard({ now }: { now: number }): React.JSX.Element {
-  const pomo = useAppStore((state) => state.pomodoro)
-  const updatePomodoro = useAppStore((state) => state.updatePomodoro)
-
-  const remaining =
-    pomo.running && pomo.endsAt !== null
-      ? Math.max(0, Math.ceil((pomo.endsAt - now) / 1000))
-      : pomo.leftSec
-  const phaseLenSec = Math.max(1, pomodoroPhaseMinutes(pomo, pomo.phase) * 60)
-  const progress = Math.min(1, Math.max(0, 1 - remaining / phaseLenSec))
-  const previewing = !pomo.running && !pomo.ringing && pomo.phase !== 'idle'
-
-  const start = (): void => {
-    stopAlarm()
-    if (pomo.phase === 'idle') {
-      updatePomodoro({
-        phase: 'focus',
-        ringing: false,
-        running: true,
-        endsAt: Date.now() + pomo.focusMin * 60 * 1000,
-        leftSec: pomo.focusMin * 60
-      })
-      return
-    }
-    updatePomodoro({
-      running: true,
-      ringing: false,
-      endsAt: Date.now() + Math.max(0, remaining) * 1000
-    })
-  }
-
-  const pause = (): void => {
-    updatePomodoro({ running: false, leftSec: remaining, endsAt: null })
-  }
-
-  const reset = (): void => {
-    updatePomodoro({
-      phase: 'idle',
-      running: false,
-      ringing: false,
-      endsAt: null,
-      leftSec: pomo.focusMin * 60,
-      completedFocus: 0
-    })
-    silenceUnlessRinging()
-  }
-
-  const skip = (): void => {
-    updatePomodoro(advancePomodoro(pomo, pomo.running))
-    silenceUnlessRinging()
-  }
-
-  const stopRing = (): void => {
-    // Dismissing the ring moves on (running when auto-advance is on).
-    updatePomodoro(advancePomodoro(pomo, pomo.autoAdvance))
-    silenceUnlessRinging()
-  }
-
-  const setMinutes = (key: 'focusMin' | 'breakMin' | 'longBreakMin', value: string): void => {
-    const minutes = Math.min(180, Math.max(1, Math.floor(Number(value) || 0)))
-    if (!minutes) return
-    const patch: Partial<PomodoroState> = {}
-    if (key === 'focusMin') patch.focusMin = minutes
-    else if (key === 'breakMin') patch.breakMin = minutes
-    else patch.longBreakMin = minutes
-    // Retune the live preview when editing the phase on screen (idle shows focus).
-    const phaseKey =
-      pomo.phase === 'break' ? 'breakMin' : pomo.phase === 'longBreak' ? 'longBreakMin' : 'focusMin'
-    if (!pomo.running && !pomo.ringing && key === phaseKey) {
-      patch.leftSec = minutes * 60
-    }
-    updatePomodoro(patch)
-  }
-
-  const dots = Array.from({ length: pomo.roundsBeforeLong }, (_, i) => i)
-
-  return (
-    <section className={`miniapp${pomo.ringing ? ' is-ringing' : ''}`} aria-label="Pomodoro">
-      <header className="miniapp__head">
-        <TimerIcon size={18} />
-        <h3>Pomodoro</h3>
-      </header>
-      <div className="miniapp__row">
-        <span className="pomo__phase">
-          {pomo.phase === 'idle' ? 'Ready' : POMODORO_LABEL[pomo.phase]}
-        </span>
-        <span className="pomo__dots" aria-label={`${pomo.completedFocus} sessions done`}>
-          {dots.map((i) => (
-            <span key={i} className={`pomo__dot${i < pomo.completedFocus ? ' is-done' : ''}`} />
-          ))}
-        </span>
-      </div>
-      <div className="miniapp__clock">{formatElapsed(remaining)}</div>
-      <div className="miniapp__bar">
-        <span style={{ width: `${progress * 100}%` }} />
-      </div>
-      <div className="miniapp__row">
-        {pomo.ringing ? (
-          <button type="button" className="btn btn--primary" onClick={stopRing}>
-            Stop
-          </button>
-        ) : pomo.running ? (
-          <button type="button" className="btn btn--primary" onClick={pause}>
-            Pause
-          </button>
-        ) : (
-          <button type="button" className="btn btn--primary" onClick={start}>
-            {pomo.phase === 'idle' ? 'Start focus' : previewing ? 'Resume' : 'Start'}
-          </button>
-        )}
-        {!pomo.ringing && pomo.phase !== 'idle' && (
-          <button type="button" className="btn btn--ghost" onClick={skip}>
-            Skip
-          </button>
-        )}
-        <button type="button" className="btn btn--ghost" onClick={reset}>
-          Reset
-        </button>
-      </div>
-      {pomo.ringing && (
-        <p className="miniapp__hint">
-          {pomo.phase === 'focus' ? 'Focus done — break time!' : 'Break over — back to focus!'}
-        </p>
-      )}
-      <div className="pomo__settings">
-        <label className="pomo__field">
-          Focus
-          <input
-            type="number"
-            className="dlg__input"
-            min={1}
-            max={180}
-            value={pomo.focusMin}
-            aria-label="Focus minutes"
-            onChange={(event) => setMinutes('focusMin', event.target.value)}
-          />
-        </label>
-        <label className="pomo__field">
-          Break
-          <input
-            type="number"
-            className="dlg__input"
-            min={1}
-            max={60}
-            value={pomo.breakMin}
-            aria-label="Break minutes"
-            onChange={(event) => setMinutes('breakMin', event.target.value)}
-          />
-        </label>
-        <label className="pomo__field">
-          Long
-          <input
-            type="number"
-            className="dlg__input"
-            min={1}
-            max={90}
-            value={pomo.longBreakMin}
-            aria-label="Long break minutes"
-            onChange={(event) => setMinutes('longBreakMin', event.target.value)}
-          />
-        </label>
-        <label className="pomo__field">
-          Every
-          <input
-            type="number"
-            className="dlg__input"
-            min={2}
-            max={12}
-            value={pomo.roundsBeforeLong}
-            aria-label="Sessions before long break"
-            onChange={(event) =>
-              updatePomodoro({
-                roundsBeforeLong: Math.min(
-                  12,
-                  Math.max(2, Math.floor(Number(event.target.value) || 0) || 4)
-                )
-              })
-            }
-          />
-        </label>
-      </div>
-      <label className="settings__check">
-        <input
-          type="checkbox"
-          checked={pomo.autoAdvance}
-          onChange={(event) => updatePomodoro({ autoAdvance: event.target.checked })}
-        />
-        Auto-start next phase
-      </label>
-      <div className="miniapp__row">
-        <SoundSelect
-          label="Pomodoro sound"
-          value={pomo.soundId}
-          onChange={(soundId) => updatePomodoro({ soundId })}
-        />
-      </div>
     </section>
   )
 }
@@ -759,15 +756,6 @@ function Misc(): React.JSX.Element {
             <p className="miniapp__hint">No timers yet — add one to get started.</p>
           )}
         </ClockSection>
-        <section className="clock-section" aria-label="Pomodoro">
-          <div className="clock-section__head">
-            <TimerIcon size={17} />
-            <h2 className="clock-section__title">Pomodoro</h2>
-          </div>
-          <div className="misc__grid">
-            <PomodoroCard now={now} />
-          </div>
-        </section>
         <ClockSection
           icon={<StopwatchIcon size={17} />}
           title="Stopwatches"

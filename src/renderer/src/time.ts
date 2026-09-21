@@ -23,6 +23,64 @@ export function isAlarmDue(alarmTime: string, now: Date = new Date()): boolean {
   return isValidTimeHHMM(alarmTime) && nowHHMM(now) === alarmTime
 }
 
+/** Pomodoro phase. Lives here (dependency-free) so store + UI can share it. */
+export type PomodoroPhase = 'idle' | 'focus' | 'break' | 'longBreak'
+
+export interface PomodoroSpec {
+  phase: PomodoroPhase
+  completedFocus: number
+  roundsBeforeLong: number
+  focusMin: number
+  breakMin: number
+  longBreakMin: number
+}
+
+/** Length in minutes of a pomodoro phase (`idle` previews focus). */
+export function pomodoroPhaseMinutes(spec: PomodoroSpec, phase: PomodoroPhase): number {
+  if (phase === 'break') return spec.breakMin
+  if (phase === 'longBreak') return spec.longBreakMin
+  return spec.focusMin
+}
+
+/**
+ * Next phase after the current one ends (or is skipped). A finished focus
+ * counts toward the long break only when the caller already incremented
+ * `completedFocus` (natural expiry does; skip does not).
+ */
+export function advancePomodoroTimer(
+  spec: PomodoroSpec,
+  startRunning: boolean,
+  now: number
+): {
+  phase: PomodoroPhase
+  completedFocus: number
+  running: boolean
+  ringing: boolean
+  endsAt: number | null
+  leftSec: number
+} {
+  let phase: PomodoroPhase = 'focus'
+  let completedFocus = spec.completedFocus
+  if (spec.phase === 'focus') {
+    phase =
+      completedFocus > 0 && completedFocus % spec.roundsBeforeLong === 0 ? 'longBreak' : 'break'
+  } else if (spec.phase === 'break') {
+    phase = 'focus'
+  } else if (spec.phase === 'longBreak') {
+    phase = 'focus'
+    completedFocus = 0
+  }
+  const minutes = pomodoroPhaseMinutes(spec, phase)
+  return {
+    phase,
+    completedFocus,
+    running: startRunning,
+    ringing: false,
+    endsAt: startRunning ? now + minutes * 60 * 1000 : null,
+    leftSec: minutes * 60
+  }
+}
+
 /** `HH:MM` + minutes, wrapping past midnight. Returns null on bad input. */
 export function addMinutesHHMM(time: string, minutes: number): string | null {
   if (!isValidTimeHHMM(time)) return null

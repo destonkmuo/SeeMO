@@ -28,6 +28,30 @@ import CodeBlock from './CodeBlock'
 const INLINE_RE =
   /(`[^`\n]+`)|(\$\$[^$\n]+\$\$)|(\$[^\s$](?:[^$\n]*[^\s$])?\$)|(\[\[[^\]\n]+\]\])|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~\n]+~~)|(!?\[[^\]\n]*\]\([^)\n]*\))/g
 
+/**
+ * Smart arrows: `->` renders as → and friends. Applied only to plain-text
+ * runs (never code spans, math, or link targets), so pasted code stays intact.
+ * Longest shapes first so `<-->` wins over `<-`.
+ */
+const SMART_ARROWS_RE = /<-->|<=>|<->|-->|==>|<--|<==|->|<-|=>|<=/g
+const SMART_ARROWS: Record<string, string> = {
+  '<-->': '⟷',
+  '<=>': '⟺',
+  '<->': '↔',
+  '-->': '⟶',
+  '==>': '⟹',
+  '<--': '⟵',
+  '<==': '⟸',
+  '->': '→',
+  '<-': '←',
+  '=>': '⇒',
+  '<=': '⇐'
+}
+
+function smartArrows(text: string): string {
+  return text.replace(SMART_ARROWS_RE, (match) => SMART_ARROWS[match] ?? match)
+}
+
 const SAFE_URL = /^(https?:\/\/|mailto:|#|\/)/i
 
 function safeUrl(url: string): string | undefined {
@@ -330,7 +354,7 @@ function renderInline(text: string, prefix: string, images?: ImageControls): Rea
   INLINE_RE.lastIndex = 0
   while ((match = INLINE_RE.exec(text)) !== null) {
     if (match.index > last) {
-      nodes.push(text.slice(last, match.index))
+      nodes.push(smartArrows(text.slice(last, match.index)))
     }
 
     const token = match[0]
@@ -353,11 +377,11 @@ function renderInline(text: string, prefix: string, images?: ImageControls): Rea
         nodes.push(token)
       }
     } else if (token.startsWith('**') || token.startsWith('__')) {
-      nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>)
+      nodes.push(<strong key={key}>{smartArrows(token.slice(2, -2))}</strong>)
     } else if (token.startsWith('~~')) {
-      nodes.push(<del key={key}>{token.slice(2, -2)}</del>)
+      nodes.push(<del key={key}>{smartArrows(token.slice(2, -2))}</del>)
     } else if (token.startsWith('*') || token.startsWith('_')) {
-      nodes.push(<em key={key}>{token.slice(1, -1)}</em>)
+      nodes.push(<em key={key}>{smartArrows(token.slice(1, -1))}</em>)
     } else if (token.startsWith('!')) {
       const link = /^!\[([^\]]*)\]\(([^)]*)\)$/.exec(token)
       const raw = link?.[2] ?? ''
@@ -431,7 +455,7 @@ function renderInline(text: string, prefix: string, images?: ImageControls): Rea
   }
 
   if (last < text.length) {
-    nodes.push(text.slice(last))
+    nodes.push(smartArrows(text.slice(last)))
   }
   return nodes
 }

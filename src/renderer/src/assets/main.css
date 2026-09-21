@@ -3595,6 +3595,45 @@ button.cal-week__day:hover {
   margin-top: 4px;
 }
 
+/* Countdown / Pomodoro type switch on timer cards. */
+.kind-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.kind-toggle__btn {
+  flex: 1;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ev-c-text-3);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.kind-toggle__btn:hover:not(:disabled) {
+  color: var(--ev-c-text-1);
+}
+
+.kind-toggle__btn.is-active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ev-c-text-1);
+}
+
+.kind-toggle__btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* Pomodoro phase pill + session dots. */
 .pomo__phase {
   flex: none;
