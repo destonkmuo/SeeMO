@@ -1,94 +1,313 @@
-import { BrowserWindow, ipcMain, screen } from 'electron'
+import { BrowserWindow, app, ipcMain, screen } from 'electron'
+import { promises as fs } from 'fs'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 
 /**
- * Picture-in-picture orb: when the main window leaves the screen
- * (minimized or hidden), SeeMO keeps hovering in a small always-on-top
- * window with the same live core. Clicking it brings the app back.
+ * Picture-in-picture orb.
+ *
+ * Lifecycle contract — one rule, derived in `syncOrb()`:
+ *
+ *   orb visible  ⇔  setting enabled  ∧  the user is away from SeeMO
+ *                   (main window minimized/hidden, or simply not focused)
+ *
+ * Every window event funnels through `syncOrb()`, so no ad-hoc handler can
+ * strand the orb or resurrect it. The renderer side (OrbView) owns all
+ * visuals; this file owns only when the window exists.
+ *
+ * Activation safety has two layers, because an orb that follows you onto
+ * every Space can otherwise drag the app forward:
+ *   1. the orb is shown with `showInactive()` — it never activates SeeMO;
+ *   2. `activate` ignores pulses within a short window of the orb appearing
+ *      (the create→activate feedback loop), so real dock/Cmd+Tab intent
+ *      still restores the app while the feedback path cannot.
  */
 
 const ORB_SIZE = 176
 const ORB_MARGIN = 24
 
-let orbWindow: BrowserWindow | null = null
 let mainWindow: BrowserWindow | null = null
-// Mirrors the renderer's persisted setting (synced over IPC, defaults on).
-// Main can't read the renderer's storage, so the app pushes every change.
+let orbWindow: BrowserWindow | null = null
+/** Set once the main window has shown for real (guards the launch flash). */
+let mainShown = false
+/**
+ * Latched "user has stepped away" flag, flipped by events rather than polled
+ * from `isFocused()`. Polling is unreliable right after we steal focus back
+ * (the focus event may lag), which would bounce the orb back on screen.
+ */
+let userAway = false
+/** Latched on first focus: the orb never appears before the user has been
+ *  in the app at least once (no orb flash during launch). */
+let hasFocusedOnce = false
+/** When the orb last appeared; used to absorb the create→activate pulse. */
+let orbCreatedAt = 0
+/** Mirrors the renderer setting (main can't read renderer storage). */
 let orbEnabled = true
+
+// ---------------------------------------------------------------------------
+// Temporary tracing: writes only lifecycle *decisions* so any recurrence is
+// traceable to the exact branch. Delete once the orb has been quiet for a
+// release or two.
+// ---------------------------------------------------------------------------
+
+const DIAG_FILE = 'window-events.log'
+let diagChain: Promise<void> = Promise.resolve()
+
+function diag(event: string): void {
+  if (!is.dev) return
+  const line = `${new Date().toISOString()} ${event}`
+  diagChain = diagChain
+    .then(async () => {
+      const file = join(app.getPath('userData'), DIAG_FILE)
+      let prev: string[] = []
+      try {
+        prev = (await fs.readFile(file, 'utf8')).split('\n').filter(Boolean)
+      } catch {
+        prev = []
+      }
+      await fs.writeFile(file, `${[...prev, line].slice(-200).join('\n')}\n`, 'utf8')
+    })
+    .catch(() => undefined)
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+
+/**
+ * "The user is away." Driven purely by latched events, never by polling
+ * `isMinimized()`/`isVisible()`: during a restore those still report the old
+ * state for a beat, and polling them would bounce the orb straight back.
+ */
+function mainNeedsOrb(): boolean {
+  const main = mainWindow
+  if (!main || main.isDestroyed()) return false
+  return hasFocusedOnce && userAway
+}
+
+/** The single reconcile point: make reality match the contract. */
+function syncOrb(): void {
+  const shouldShow = orbEnabled && mainShown && mainNeedsOrb()
+  if (shouldShow) {
+    if (!orbWindow || orbWindow.isDestroyed()) createOrb()
+    return
+  }
+  destroyOrb()
+}
 
 export function trackMainWindow(win: BrowserWindow): void {
   mainWindow = win
-  win.on('minimize', () => createOrbWindow())
-  win.on('restore', () => destroyOrbWindow())
-  win.on('hide', () => createOrbWindow())
-  win.on('show', () => destroyOrbWindow())
+  mainShown = false
+  attachDiagnostics(win)
+  const resync = (): void => syncOrb()
+  win.on('minimize', () => {
+    userAway = true
+    resync()
+  })
+  win.on('hide', () => {
+    userAway = true
+    resync()
+  })
+  win.on('restore', () => {
+    userAway = false
+    resync()
+  })
+  win.on('focus', () => {
+    hasFocusedOnce = true
+    userAway = false
+    resync()
+  })
+  win.on('blur', () => {
+    userAway = true
+    resync()
+  })
+  win.on('show', () => {
+    mainShown = true
+    userAway = false
+    resync()
+  })
   win.on('closed', () => {
     mainWindow = null
-    destroyOrbWindow()
+    mainShown = false
+    userAway = false
+    hasFocusedOnce = false
+    destroyOrb()
   })
 }
 
-function orbURL(): { file: string; query: Record<string, string> } {
-  return { file: join(__dirname, '../renderer/index.html'), query: { orb: '1' } }
+/**
+ * Dock click / Cmd+Tab. Returns true when handled (a main window exists).
+ * The orb appearing does not go through here (it's shown inactive), so this
+ * path is reserved for genuine user intent to bring SeeMO back.
+ */
+export function handleActivate(): boolean {
+  const main = mainWindow
+  if (!main || main.isDestroyed()) return false
+  // Absorb the activation macOS fires the instant an all-Spaces window
+  // appears. Genuine dock/Cmd+Tab intent always arrives after this window.
+  if (Date.now() - orbCreatedAt < 800) {
+    diag('activate:ignored (orb just appeared)')
+    return true
+  }
+  // Pre-first-show activations are the OS launching us; show() is intentional.
+  if (!mainShown && !main.isVisible()) return true
+  diag(`activate:restore minimized=${main.isMinimized()} visible=${main.isVisible()}`)
+  // Full restore (drops the orb immediately, not on a focus event).
+  focusMainWindow()
+  return true
 }
 
-export function createOrbWindow(): void {
-  if (!orbEnabled) return
-  if (orbWindow && !orbWindow.isDestroyed()) {
-    orbWindow.show()
+/**
+ * Restore + activate the main window from the background. `focus()` alone
+ * can't pull a window forward while another app is active, so macOS gets an
+ * explicit `app.focus({ steal: true })` first.
+ */
+function bringMainForward(main: BrowserWindow): void {
+  // Clear "away" first so the restore events can't bounce the orb back.
+  userAway = false
+  if (process.platform === 'darwin') app.focus({ steal: true })
+  if (main.isMinimized()) main.restore()
+  if (!main.isVisible()) main.show()
+  main.focus()
+}
+
+// ---------------------------------------------------------------------------
+// Orb window
+// ---------------------------------------------------------------------------
+
+const ORB_FADE_MS = 220
+const ORB_FADE_STEPS = 12
+
+/**
+ * Ramp a window from transparent to opaque with an ease-out curve, so the
+ * orb settles in rather than snapping onto the screen. `setOpacity` is a
+ * no-op on Linux, where it just appears.
+ */
+function fadeIn(win: BrowserWindow): void {
+  if (process.platform === 'linux') {
+    win.setOpacity(1)
     return
   }
-  orbWindow = new BrowserWindow({
+  let step = 0
+  const id = setInterval(() => {
+    if (win.isDestroyed()) {
+      clearInterval(id)
+      return
+    }
+    step += 1
+    if (step >= ORB_FADE_STEPS) {
+      win.setOpacity(1)
+      clearInterval(id)
+      return
+    }
+    const t = step / ORB_FADE_STEPS
+    win.setOpacity(1 - Math.pow(1 - t, 3))
+  }, ORB_FADE_MS / ORB_FADE_STEPS)
+}
+
+function createOrb(): void {
+  if (!orbEnabled) return
+  const win = new BrowserWindow({
     width: ORB_SIZE,
     height: ORB_SIZE,
+    // The look: transparent frameless stage; the renderer paints the orb.
     transparent: true,
     frame: false,
+    hasShadow: false,
     resizable: false,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    hasShadow: false,
+    // Windows/Linux only. On macOS this flag is one of the things that can
+    // make the whole app vanish from the Dock while the orb is up.
+    skipTaskbar: process.platform !== 'darwin',
+    // Focus comes from showInactive() below, not from the window type:
+    // marking the orb non-focusable made macOS treat it as a panel, which
+    // could also drop the app's Dock icon.
+    // Shown explicitly once flags are set — a window that appears on its own
+    // activates the app (the old "jumps in front" bug).
+    show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
     }
   })
-  orbWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  // Park bottom-right of the work area (clear of the dock/taskbar).
+  // Follow the user across desktops (and over fullscreen apps — it's the
+  // point of a PiP), floating above normal windows. Set before first show so
+  // macOS applies it to the Space the orb is born on.
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  win.setAlwaysOnTop(true, 'floating')
   const area = screen.getPrimaryDisplay().workArea
-  orbWindow.setPosition(
+  win.setPosition(
     area.x + area.width - ORB_SIZE - ORB_MARGIN,
     area.y + area.height - ORB_SIZE - ORB_MARGIN
   )
-  const { file, query } = orbURL()
+  // Start fully transparent; the fade happens once the first frame is
+  // painted, so window and content materialize together instead of popping.
+  win.setOpacity(0)
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    void orbWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?orb=1`)
+    void win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?orb=1`)
   } else {
-    void orbWindow.loadFile(file, { query })
+    void win.loadFile(join(__dirname, '../renderer/index.html'), { query: { orb: '1' } })
   }
-  orbWindow.on('closed', () => {
+  // Keep the Dock icon while the orb is the app's only visible window:
+  // showing a non-activating window can otherwise flip macOS to an
+  // accessory activation policy, which hides SeeMO from the Dock.
+  if (process.platform === 'darwin') app.setActivationPolicy('regular')
+
+  let revealed = false
+  const reveal = (): void => {
+    if (revealed || win.isDestroyed()) return
+    revealed = true
+    // showInactive: visible everywhere without ever activating SeeMO, so the
+    // orb can't drag the main window forward with it.
+    win.showInactive()
+    orbCreatedAt = Date.now()
+    fadeIn(win)
+  }
+  // 'ready-to-show' fires once the first frame is painted — the seamless
+  // moment. The timeout is a safety net for transparent windows.
+  win.once('ready-to-show', reveal)
+  const revealFallback = setTimeout(reveal, 700)
+
+  win.on('closed', () => {
+    clearTimeout(revealFallback)
     orbWindow = null
   })
+  orbWindow = win
+  diag('orb:create')
 }
 
-export function destroyOrbWindow(): void {
-  if (orbWindow && !orbWindow.isDestroyed()) orbWindow.close()
+function destroyOrb(): void {
+  const win = orbWindow
   orbWindow = null
+  if (win && !win.isDestroyed()) {
+    win.close()
+    diag('orb:destroy')
+  }
 }
 
+/** Bring the app back and take the orb down (also reached via `activate`). */
 function focusMainWindow(): void {
   const main = mainWindow
-  if (!main || main.isDestroyed()) {
-    destroyOrbWindow()
-    return
-  }
-  if (main.isMinimized()) main.restore()
-  if (!main.isVisible()) main.show()
-  main.focus()
-  destroyOrbWindow()
+  destroyOrb()
+  if (!main || main.isDestroyed()) return
+  bringMainForward(main)
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics + IPC
+// ---------------------------------------------------------------------------
+
+function attachDiagnostics(win: BrowserWindow): void {
+  win.on('show', () => diag('main:show'))
+  win.on('hide', () => diag('main:hide'))
+  win.on('minimize', () => diag('main:minimize'))
+  win.on('restore', () => diag('main:restore'))
+  win.on('focus', () => diag('main:focus'))
+  win.on('blur', () => diag('main:blur'))
+  win.on('close', () => diag('main:close'))
+  app.on('activate', () => diag('app:activate'))
 }
 
 export function registerOrbHandlers(): void {
@@ -97,7 +316,7 @@ export function registerOrbHandlers(): void {
   })
   ipcMain.on('orb:set-enabled', (_event, enabled: unknown) => {
     orbEnabled = enabled === true
-    if (!orbEnabled) destroyOrbWindow()
+    syncOrb() // unchecking takes effect immediately
   })
   // Core-state pulses from one window reach all the others, so the orb
   // mirrors agent-side states (speaking/idle) the voice broadcast misses.

@@ -9,7 +9,7 @@ import {
   type ImageSide
 } from '../images'
 
-import { FileTextIcon, ImageIcon, TrashIcon } from '../components/icons'
+import { FileTextIcon, TrashIcon } from '../components/icons'
 import { useAppStore, type ImageLayout } from '../store/appStore'
 
 /** Stable empty layout so memo deps don't churn. */
@@ -192,16 +192,6 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
     )
   }
 
-  const addPicture = async (): Promise<void> => {
-    try {
-      const result = await window.api.vault.importPicture()
-      if (!result) return // user canceled the picker
-      appendBlocks([result.markdown])
-    } catch (error) {
-      console.error('[note] picture import failed', error)
-    }
-  }
-
   const appendBlocks = (blocks: string[]): void => {
     if (blocks.length === 0) return
     const body = note.content.trimEnd()
@@ -285,15 +275,6 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
           {note.fileName ? ` · ${note.fileName}` : ''}
         </span>
         <div className="note__actions">
-          <button
-            type="button"
-            className="icon-btn"
-            title="Add picture (local file or paste an image URL)"
-            aria-label="Add picture"
-            onClick={() => void addPicture()}
-          >
-            <ImageIcon size={15} />
-          </button>
           <button
             type="button"
             className="icon-btn icon-btn--danger"

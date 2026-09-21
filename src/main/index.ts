@@ -6,7 +6,7 @@ import { registerCalendarHandlers } from './calendar'
 import { startVoice, stopVoice, speakResponse } from './voice'
 import { registerGithubHandlers } from './github'
 import { registerLockHandlers } from './lock'
-import { registerOrbHandlers, trackMainWindow } from './orb'
+import { handleActivate, registerOrbHandlers, trackMainWindow } from './orb'
 import { registerMediaHandlers, registerMediaScheme } from './media'
 import { registerVaultHandlers } from './vault'
 import icon from '../../resources/icon.png?asset'
@@ -123,8 +123,10 @@ app.whenReady().then(() => {
   startVoice()
 
   app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
+    // Dock click / Cmd+Tab back: bring a minimized/hidden main window
+    // forward (the orb counts as a window, so the zero-windows check below
+    // would otherwise never fire). Only re-create when nothing exists.
+    if (handleActivate()) return
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })

@@ -30,8 +30,8 @@ function Agent(): React.JSX.Element {
   const clearChat = useAppStore((state) => state.clearChat)
   const ttsEnabled = useAppStore((state) => state.ttsEnabled)
   const setTtsEnabled = useAppStore((state) => state.setTtsEnabled)
-  const micMuted = useAppStore((state) => state.micMuted)
-  const setMicMuted = useAppStore((state) => state.setMicMuted)
+  const agentMicMuted = useAppStore((state) => state.agentMicMuted)
+  const setAgentMicMuted = useAppStore((state) => state.setAgentMicMuted)
 
   const [draft, setDraft] = useState('')
   const [pendingReply, setPendingReply] = useState(false)
@@ -71,13 +71,13 @@ function Agent(): React.JSX.Element {
           <div className="agent__mutes" aria-label="Audio controls">
             <button
               type="button"
-              className={`agent__mute-btn${micMuted ? ' is-muted' : ''}`}
-              title={micMuted ? 'Unmute microphone' : 'Mute microphone'}
-              aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
-              aria-pressed={micMuted}
-              onClick={() => setMicMuted(!micMuted)}
+              className={`agent__mute-btn${agentMicMuted ? ' is-muted' : ''}`}
+              title={agentMicMuted ? 'Unmute microphone' : 'Mute microphone'}
+              aria-label={agentMicMuted ? 'Unmute microphone' : 'Mute microphone'}
+              aria-pressed={agentMicMuted}
+              onClick={() => setAgentMicMuted(!agentMicMuted)}
             >
-              {micMuted ? <MicMutedIcon size={20} /> : <MicIcon size={20} />}
+              {agentMicMuted ? <MicMutedIcon size={20} /> : <MicIcon size={20} />}
             </button>
             <button
               type="button"
@@ -116,13 +116,13 @@ function Agent(): React.JSX.Element {
           </span>
           <button
             type="button"
-            className={`chat__clear chat__mute${micMuted ? ' is-muted' : ''}`}
-            title={micMuted ? 'Unmute microphone' : 'Mute microphone'}
-            aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
-            aria-pressed={micMuted}
-            onClick={() => setMicMuted(!micMuted)}
+            className={`chat__clear chat__mute${agentMicMuted ? ' is-muted' : ''}`}
+            title={agentMicMuted ? 'Unmute microphone' : 'Mute microphone'}
+            aria-label={agentMicMuted ? 'Unmute microphone' : 'Mute microphone'}
+            aria-pressed={agentMicMuted}
+            onClick={() => setAgentMicMuted(!agentMicMuted)}
           >
-            {micMuted ? <MicMutedIcon size={14} /> : <MicIcon size={14} />}
+            {agentMicMuted ? <MicMutedIcon size={14} /> : <MicIcon size={14} />}
           </button>
           <button
             type="button"

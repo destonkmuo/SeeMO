@@ -62,12 +62,27 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
     }
   }, [])
 
+  // The SeeMO page has its own independent mute: on the page (active tab or
+  // split pane) voice is live unless the page is muted. Off the page the mic
+  // is effectively off unless Always listening is on. Anywhere voice isn't
+  // live, input is ignored entirely: nothing in chat, no orb movement, no
+  // replies.
+  const isVoiceLive = (): boolean => {
+    const { tabs, activeTabId, splitTabId, backgroundListening, agentMicMuted } =
+      useAppStore.getState()
+    const onPage =
+      tabs.find((t) => t.id === activeTabId)?.kind === 'agent' ||
+      (splitTabId !== null &&
+        splitTabId !== activeTabId &&
+        tabs.find((t) => t.id === splitTabId)?.kind === 'agent')
+    return onPage ? !agentMicMuted : backgroundListening
+  }
+
   // Wake-word hits arrive ahead of any transcript: flash `summoned` briefly.
-  // Ignored while the mic is muted.
   useEffect(() => {
     return window.api.onVoiceWake(() => {
-      const { setCoreState, micMuted } = useAppStore.getState()
-      if (micMuted) return
+      if (!isVoiceLive()) return
+      const { setCoreState } = useAppStore.getState()
       if (summonedTimer.current) clearTimeout(summonedTimer.current)
       setCoreState('summoned')
       summonedTimer.current = setTimeout(() => setCoreState('idle'), SUMMONED_TIMEOUT_MS)
@@ -75,12 +90,10 @@ export function VoiceProvider({ children }: { children: ReactNode }): React.JSX.
   }, [])
 
   // Receive transcriptions forwarded from the main process.
-  // Dropped entirely while the mic is muted so muted speech never lands in
-  // the chat, drives the orb, or triggers background replies.
   useEffect(() => {
     return window.api.onVoiceTranscript((text) => {
-      const { setCoreState, addChatMessage, backgroundListening, micMuted } = useAppStore.getState()
-      if (micMuted) return
+      if (!isVoiceLive()) return
+      const { setCoreState, addChatMessage, backgroundListening } = useAppStore.getState()
       setTranscripts((prev) => [...prev, { id: crypto.randomUUID(), text, timestamp: Date.now() }])
 
       // Drive the core animation from voice activity. getState() avoids

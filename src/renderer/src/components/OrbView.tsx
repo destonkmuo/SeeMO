@@ -72,6 +72,10 @@ declare global {
 function OrbView(): React.JSX.Element {
   useOrbCore()
 
+  // Drag-release also fires click on frameless drag regions: only a true
+  // (near-stationary) click brings the app back, moving the orb never does.
+  const downPos = useRef<{ x: number; y: number } | null>(null)
+
   useEffect(() => {
     document.body.classList.add('is-orb')
     // Debug handle mirroring __voiceContext: live core without a subscription.
@@ -82,6 +86,13 @@ function OrbView(): React.JSX.Element {
     }
   }, [])
 
+  const focusApp = (clientX: number, clientY: number): void => {
+    const start = downPos.current
+    downPos.current = null
+    if (start && Math.hypot(clientX - start.x, clientY - start.y) > 6) return
+    void window.api.focusApp().catch(() => undefined)
+  }
+
   return (
     <div
       className="orb"
@@ -89,9 +100,10 @@ function OrbView(): React.JSX.Element {
       tabIndex={0}
       title="Open SeeMO"
       aria-label="SeeMO is here — activate to open the app"
-      onClick={() => {
-        void window.api.focusApp().catch(() => undefined)
+      onMouseDown={(event) => {
+        downPos.current = { x: event.clientX, y: event.clientY }
       }}
+      onClick={(event) => focusApp(event.clientX, event.clientY)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()

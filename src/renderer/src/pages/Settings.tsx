@@ -1,14 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { type CoreState, useAppStore } from '../store/appStore'
+import { useAppStore } from '../store/appStore'
 import type { GithubStatus } from '../../../preload/github'
-
-const CORE_OPTIONS: { key: CoreState; label: string; hint: string }[] = [
-  { key: 'sleep', label: 'Sleep', hint: 'Dormant' },
-  { key: 'summoned', label: 'Summoned', hint: 'Just heard the wake word' },
-  { key: 'idle', label: 'Idle', hint: 'Listening' },
-  { key: 'working', label: 'Working', hint: 'On an objective' },
-  { key: 'speaking', label: 'Speaking', hint: 'Talking back' }
-]
 
 function GithubBackup(): React.JSX.Element {
   const autoSync = useAppStore((state) => state.autoSync)
@@ -429,7 +421,6 @@ function LockSettings(): React.JSX.Element {
 
 function Settings(): React.JSX.Element {
   const notes = useAppStore((state) => state.notes)
-  const coreState = useAppStore((state) => state.coreState)
   const backgroundListening = useAppStore((state) => state.backgroundListening)
   const setBackgroundListening = useAppStore((state) => state.setBackgroundListening)
   const orbEnabled = useAppStore((state) => state.orbEnabled)
@@ -484,25 +475,7 @@ function Settings(): React.JSX.Element {
         <GithubBackup />
 
         <section className="settings__section">
-          <h2 className="settings__section-title">SeeMO core</h2>
-          <div className="settings__row">
-            {CORE_OPTIONS.map((option) => (
-              <span
-                key={option.key}
-                className={`state-pill${option.key === coreState ? ' is-active' : ''}`}
-                title={option.hint}
-              >
-                {option.label}
-              </span>
-            ))}
-          </div>
-          <p className="settings__note">
-            Current state: <strong>{coreState}</strong>. Driven automatically by voice activity.
-          </p>
-        </section>
-
-        <section className="settings__section">
-          <h2 className="settings__section-title">Background SeeMO</h2>
+          <h2 className="settings__section-title">Voice & audio</h2>
           <label className="settings__check">
             <input
               type="checkbox"
@@ -512,9 +485,11 @@ function Settings(): React.JSX.Element {
             Always listening
           </label>
           <p className="settings__note">
-            When on, SeeMO answers what you say even away from the SeeMO page, and its replies
-            surface in a bubble at the bottom-right. The mic pipeline itself always runs; this only
-            controls background responses.
+            When on, the mic stays live everywhere: SeeMO answers what you say even away from the
+            SeeMO page, and its replies surface in a bubble at the bottom-right. When off, the mic
+            only works on the SeeMO page — anywhere else it&apos;s effectively turned off. The
+            microphone button in the sidebar toggles this same setting; the SeeMO page has its own
+            independent mute.
           </p>
           <label className="settings__check">
             <input
@@ -524,6 +499,10 @@ function Settings(): React.JSX.Element {
             />
             Spoken replies (Piper · Alba medium)
           </label>
+          <p className="settings__note">
+            When on, finished replies are read aloud through the voice pipeline. Requires the Piper
+            binary and Alba voice from start.sh.
+          </p>
           <label className="settings__check">
             <input
               type="checkbox"
@@ -535,10 +514,6 @@ function Settings(): React.JSX.Element {
           <p className="settings__note">
             When on, minimizing or hiding the app leaves SeeMO hovering in a small always-on-top
             window. Click it to bring the app back.
-          </p>
-          <p className="settings__note">
-            When on, finished replies are read aloud through the voice pipeline. Requires the Piper
-            binary and Alba voice from start.sh.
           </p>
         </section>
 

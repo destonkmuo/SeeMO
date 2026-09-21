@@ -196,8 +196,8 @@ function Sidebar(): React.JSX.Element {
   const sidebarWidth = useAppStore((state) => state.sidebarWidth)
   const setSidebarWidth = useAppStore((state) => state.setSidebarWidth)
   const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed)
-  const micMuted = useAppStore((state) => state.micMuted)
-  const setMicMuted = useAppStore((state) => state.setMicMuted)
+  const backgroundListening = useAppStore((state) => state.backgroundListening)
+  const setBackgroundListening = useAppStore((state) => state.setBackgroundListening)
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropHint, setDropHint] = useState<{ id: string; before: boolean } | null>(null)
@@ -663,7 +663,7 @@ function Sidebar(): React.JSX.Element {
               }
               onClick={() => toggleExpand(note.id)}
             >
-              <ChevronDownIcon size={13} />
+              <ChevronDownIcon size={20} />
             </button>
           ) : (
             <span className="sidebar__twisty sidebar__twisty--spacer" aria-hidden="true" />
@@ -889,7 +889,7 @@ function Sidebar(): React.JSX.Element {
               aria-label="Open graph"
               onClick={() => openNav('graph')}
             >
-              <GraphIcon size={15} />
+              <GraphIcon size={22} />
             </button>
             <button
               type="button"
@@ -898,7 +898,7 @@ function Sidebar(): React.JSX.Element {
               aria-label="New note"
               onClick={() => createNote()}
             >
-              <PlusIcon size={15} />
+              <PlusIcon size={22} />
             </button>
           </div>
 
@@ -1154,13 +1154,15 @@ function Sidebar(): React.JSX.Element {
         <span className="sidebar__label">Core: {coreState}</span>
         <button
           type="button"
-          className={`sidebar__icon-btn sidebar__footer-btn${micMuted ? ' is-muted' : ''}`}
-          title={micMuted ? 'Unmute microphone' : 'Mute microphone'}
-          aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
-          aria-pressed={micMuted}
-          onClick={() => setMicMuted(!micMuted)}
+          className={`sidebar__icon-btn sidebar__footer-btn${backgroundListening ? '' : ' is-muted'}`}
+          title={backgroundListening ? 'Turn off Always listening' : 'Turn on Always listening'}
+          aria-label={
+            backgroundListening ? 'Turn off Always listening' : 'Turn on Always listening'
+          }
+          aria-pressed={!backgroundListening}
+          onClick={() => setBackgroundListening(!backgroundListening)}
         >
-          {micMuted ? <MicMutedIcon size={18} /> : <MicIcon size={18} />}
+          {backgroundListening ? <MicIcon size={18} /> : <MicMutedIcon size={18} />}
         </button>
         <button
           type="button"

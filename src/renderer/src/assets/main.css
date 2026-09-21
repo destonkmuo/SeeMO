@@ -574,6 +574,13 @@ body {
   padding: 0 8px 4px;
 }
 
+/* Larger hit area for the Notes header actions (graph / new note). */
+.sidebar__section-head .sidebar__icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+
 .sidebar__section-head--toggle {
   width: 100%;
   border: none;
@@ -1696,8 +1703,8 @@ button.sidebar__today-row:hover {
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 18px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border: none;
   border-radius: 4px;
   background: transparent;
@@ -1720,7 +1727,7 @@ button.sidebar__today-row:hover {
 }
 
 .sidebar__twisty--spacer {
-  width: 18px;
+  width: 24px;
   visibility: hidden;
   cursor: default;
 }
@@ -2623,7 +2630,8 @@ body.is-orb {
   height: 100vh;
   cursor: pointer;
   -webkit-app-region: drag;
-  animation: drop-hint-in 200ms ease;
+  /* The window itself fades in (see fadeIn in main/orb.ts); animating the
+     element too would double-dip the transparency. */
 }
 
 .orb:focus-visible {
