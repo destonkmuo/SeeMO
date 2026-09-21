@@ -82,40 +82,45 @@ export function registerAlarmHandlers(): void {
     // Re-encode mp3 to wav on import so the browser can always decode the preview.
     // Other formats (wav, ogg, m4a, flac, aac) are kept as-is since they are
     // natively supported by the platform audio decoder.
+    const stem =
+      basename(source, ext)
+        .replace(/[^A-Za-z0-9._-]+/g, '_')
+        .slice(0, 40) || 'sound'
     let storedPath: string
     if (ext === '.mp3') {
-      const stem =
-        basename(source, ext)
-          .replace(/[^A-Za-z0-9._-]+/g, '_')
-          .slice(0, 40) || 'sound'
       const outPath = join(dir, `${Date.now()}-${stem}.wav`)
       await new Promise<void>((resolve, reject) => {
         execFile(
           'ffmpeg',
-          [source, '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '1', outPath],
+          ['-y', '-i', source, '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '1', outPath],
           (err) => {
             if (err) reject(err)
             else resolve()
           }
         )
+      }).catch((err: unknown) => {
+        const missing =
+          err instanceof Error &&
+          (err.message.includes('ENOENT') || err.message.includes('not found'))
+        throw new Error(
+          missing
+            ? 'Could not convert the mp3: ffmpeg is not installed or not on PATH.'
+            : `Could not convert the mp3: ${err instanceof Error ? err.message : String(err)}`
+        )
       })
       storedPath = outPath
     } else {
-      const stem =
-        basename(source, ext)
-          .replace(/[^A-Za-z0-9._-]+/g, '_')
-          .slice(0, 60) || 'sound'
       storedPath = join(dir, `${Date.now()}-${stem}${ext}`)
+      await fs.copyFile(source, storedPath)
     }
-    await fs.copyFile(storedPath, storedPath) // ensure it exists
 
     const storedName = basename(storedPath)
     const storedExt =
       storedName.lastIndexOf('.') >= 0
         ? storedName.slice(storedName.lastIndexOf('.')).toLowerCase()
         : ''
-    const mimeType = dot >= 0 ? MIME_BY_EXT[storedExt] : undefined
-    const url = `${SCHEME}://${HOST}/${basename(storedPath)}`
+    const mimeType = MIME_BY_EXT[storedExt]
+    const url = `${SCHEME}://${HOST}/${storedName}`
 
     return { name: storedName, url, mimeType }
   })

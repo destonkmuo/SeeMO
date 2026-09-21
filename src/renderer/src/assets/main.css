@@ -3503,6 +3503,98 @@ button.cal-week__day:hover {
   gap: 14px;
 }
 
+/* One clock family (alarms / timers / stopwatches) with its instances. */
+.clock-section {
+  margin-top: 26px;
+}
+
+.clock-section__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--ev-c-text-1);
+}
+
+.clock-section__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.clock-section__count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ev-c-text-3);
+}
+
+/* Editable instance name inside the card header. */
+.miniapp__name {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  cursor: text;
+}
+
+.miniapp__name:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+}
+
+.miniapp__name:focus {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  outline: 1px solid var(--accent);
+}
+
+.miniapp__name::placeholder {
+  color: var(--ev-c-text-3);
+  font-weight: 400;
+}
+
+.miniapp__delete {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ev-c-text-3);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.miniapp:hover .miniapp__delete,
+.miniapp__delete:focus-visible {
+  opacity: 1;
+}
+
+.miniapp__delete:hover {
+  background: rgba(255, 80, 80, 0.14);
+  color: var(--danger);
+}
+
+/* Full-width shared row (alarm sound picker). */
+.miniapp--wide {
+  margin-top: 4px;
+}
+
 .miniapp {
   display: flex;
   flex-direction: column;

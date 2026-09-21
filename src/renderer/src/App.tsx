@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { resolveSoundUrl, startAlarmLoop } from './alarm'
+import { isAlarmDue, nowHHMM } from './time'
 import AgentBubble from './components/AgentBubble'
 import Sidebar from './components/Sidebar'
 import TabBar from './components/TabBar'
@@ -96,6 +98,43 @@ function App(): React.JSX.Element {
   // any notes that only exist in localStorage yet.
   useEffect(() => {
     void useAppStore.getState().initVault()
+  }, [])
+
+  // Clock watcher: fires due alarms and expired timers wherever you are in
+  // the app (the Misc page only displays them). Timestamps are the source of
+  // truth; this just flips flags and starts the shared sound loop.
+  useEffect(() => {
+    const tick = (): void => {
+      const state = useAppStore.getState()
+      const customUrl = state.customAlarm?.url ?? null
+      const now = Date.now()
+      for (const alarm of state.alarms) {
+        if (!alarm.enabled || alarm.ringing || now < alarm.quietUntil) continue
+        if (alarm.snoozeUntil && alarm.snoozeUntil !== nowHHMM()) {
+          state.updateAlarm(alarm.id, { snoozeUntil: null })
+        }
+        const target = alarm.snoozeUntil ?? alarm.time
+        if (target && isAlarmDue(target)) {
+          startAlarmLoop(resolveSoundUrl(alarm.soundId, customUrl))
+          state.updateAlarm(alarm.id, { ringing: true })
+        }
+      }
+      for (const timer of state.timers) {
+        if (!timer.running || timer.ringing || timer.endsAt === null) continue
+        if (timer.endsAt <= now) {
+          startAlarmLoop(resolveSoundUrl(timer.soundId, customUrl))
+          state.updateTimer(timer.id, {
+            running: false,
+            ringing: true,
+            leftSec: 0,
+            endsAt: null
+          })
+        }
+      }
+    }
+    tick()
+    const id = setInterval(tick, 500)
+    return () => clearInterval(id)
   }, [])
 
   // Ctrl/Cmd+S toggles the sidebar (there is no save dialog to clash with:

@@ -1,62 +1,89 @@
-import { useEffect, useRef, useState } from 'react'
-import { BUILT_IN_SOUNDS, previewSound, resolveSoundUrl, startAlarmLoop, stopAlarm } from '../alarm'
-import { AlarmIcon, StopwatchIcon, TimerIcon } from '../components/icons'
-import { useAppStore } from '../store/appStore'
-import { addMinutesHHMM, formatElapsed, isAlarmDue, nowHHMM, parseDurationInput } from '../time'
+import { useEffect, useState } from 'react'
+import { BUILT_IN_SOUNDS, previewSound, resolveSoundUrl, stopAlarm } from '../alarm'
+import { AlarmIcon, PlusIcon, StopwatchIcon, TimerIcon, XIcon } from '../components/icons'
+import { useAppStore, type AlarmItem, type StopwatchItem, type TimerItem } from '../store/appStore'
+import { addMinutesHHMM, formatElapsed, formatTime12h, nowHHMM, parseDurationInput } from '../time'
 
-function AlarmApp(): React.JSX.Element {
-  const alarmTime = useAppStore((state) => state.alarmTime)
-  const alarmEnabled = useAppStore((state) => state.alarmEnabled)
-  const setAlarmTime = useAppStore((state) => state.setAlarmTime)
-  const setAlarmEnabled = useAppStore((state) => state.setAlarmEnabled)
+/** Re-render on a heartbeat so countdown/stopwatch faces stay live. */
+function useNowMs(stepMs: number): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), stepMs)
+    return () => clearInterval(id)
+  }, [stepMs])
+  return now
+}
+
+/** Stop the shared loop only when no alarm/timer is still ringing. */
+function silenceUnlessRinging(): void {
+  const state = useAppStore.getState()
+  const ringing =
+    state.alarms.some((alarm) => alarm.ringing) || state.timers.some((timer) => timer.ringing)
+  if (!ringing) stopAlarm()
+}
+
+function formatDurationDraft(totalSec: number): string {
+  const minutes = Math.floor(totalSec / 60)
+  const seconds = totalSec % 60
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+function SoundSelect({
+  value,
+  onChange,
+  label
+}: {
+  value: string
+  onChange: (id: string) => void
+  label: string
+}): React.JSX.Element {
+  const customAlarm = useAppStore((state) => state.customAlarm)
+  return (
+    <select
+      className="dlg__input"
+      aria-label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      {BUILT_IN_SOUNDS.map((sound) => (
+        <option key={sound.id} value={sound.id}>
+          {sound.label}
+        </option>
+      ))}
+      {customAlarm && <option value="custom">Custom: {customAlarm.name}</option>}
+    </select>
+  )
+}
+
+function DeleteButton({
+  label,
+  onDelete
+}: {
+  label: string
+  onDelete: () => void
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      className="miniapp__delete"
+      title={`Delete ${label}`}
+      aria-label={`Delete ${label}`}
+      onClick={onDelete}
+    >
+      <XIcon size={13} />
+    </button>
+  )
+}
+
+function SoundSettings(): React.JSX.Element {
   const alarmSoundId = useAppStore((state) => state.alarmSoundId)
   const setAlarmSoundId = useAppStore((state) => state.setAlarmSoundId)
   const customAlarm = useAppStore((state) => state.customAlarm)
   const setCustomAlarm = useAppStore((state) => state.setCustomAlarm)
-
-  const [ringing, setRinging] = useState(false)
-  const [snoozeUntil, setSnoozeUntil] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
-  const quietUntil = useRef(0)
 
   const soundUrl = resolveSoundUrl(alarmSoundId, customAlarm?.url ?? null)
-
-  useEffect(() => {
-    if (!alarmEnabled) return
-    const timer = setInterval(() => {
-      if (Date.now() < quietUntil.current) return
-      if (snoozeUntil && snoozeUntil !== nowHHMM()) setSnoozeUntil(null)
-      const target = snoozeUntil ?? alarmTime
-      if (target && isAlarmDue(target)) {
-        startAlarmLoop(
-          resolveSoundUrl(
-            useAppStore.getState().alarmSoundId,
-            useAppStore.getState().customAlarm?.url ?? null
-          )
-        )
-        setRinging(true)
-      }
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [alarmEnabled, alarmTime, snoozeUntil])
-
-  useEffect(() => stopAlarm, [])
-
-  const stop = (): void => {
-    stopAlarm()
-    setRinging(false)
-    setSnoozeUntil(null)
-    quietUntil.current = Date.now() + 60_000
-  }
-
-  const snooze = (): void => {
-    const next = addMinutesHHMM(nowHHMM(), 5)
-    stopAlarm()
-    setRinging(false)
-    setSnoozeUntil(next)
-    quietUntil.current = Date.now() + 60_000
-  }
 
   const uploadCustom = async (): Promise<void> => {
     setUploading(true)
@@ -66,7 +93,6 @@ function AlarmApp(): React.JSX.Element {
       if (!result) return // user canceled the picker
       setCustomAlarm({ name: result.name, url: result.url })
       setAlarmSoundId('custom')
-      if (ringing) startAlarmLoop(result.url)
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : 'Could not import sound.')
     } finally {
@@ -80,26 +106,12 @@ function AlarmApp(): React.JSX.Element {
       return
     }
     setAlarmSoundId(id)
-    if (ringing) startAlarmLoop(resolveSoundUrl(id, customAlarm?.url ?? null))
   }
 
   return (
-    <section className={`miniapp${ringing ? ' is-ringing' : ''}`} aria-label="Alarm">
-      <header className="miniapp__head">
-        <AlarmIcon size={18} />
-        <h3>Alarm</h3>
-      </header>
-      <div className="miniapp__clock">{alarmTime ?? '--:--'}</div>
+    <div className="miniapp miniapp--wide" aria-label="Alarm sound">
       <div className="miniapp__row">
-        <input
-          type="time"
-          className="dlg__input"
-          aria-label="Alarm time"
-          value={alarmTime ?? ''}
-          onChange={(event) => setAlarmTime(event.target.value || null)}
-        />
-      </div>
-      <div className="miniapp__row">
+        <span className="miniapp__hint">Default sound for new alarms &amp; timers:</span>
         <select
           className="dlg__input"
           aria-label="Alarm sound"
@@ -123,50 +135,106 @@ function AlarmApp(): React.JSX.Element {
         >
           Preview
         </button>
+        {alarmSoundId === 'custom' && (
+          <button
+            type="button"
+            className="btn btn--ghost"
+            disabled={uploading}
+            onClick={() => void uploadCustom()}
+          >
+            {uploading ? 'Importing…' : customAlarm ? 'Change file…' : 'Choose audio file…'}
+          </button>
+        )}
       </div>
-      {alarmSoundId === 'custom' && (
-        <div className="miniapp__row">
-          {customAlarm ? (
-            <>
-              <span className="miniapp__hint">Using {customAlarm.name}.</span>
-              <button
-                type="button"
-                className="btn btn--ghost"
-                disabled={uploading}
-                onClick={() => void uploadCustom()}
-              >
-                Change file…
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              className="btn btn--ghost"
-              disabled={uploading}
-              onClick={() => void uploadCustom()}
-            >
-              {uploading ? 'Importing…' : 'Choose audio file…'}
-            </button>
-          )}
-        </div>
-      )}
       {uploadError && (
         <p className="miniapp__hint miniapp__error" role="alert">
           {uploadError}
         </p>
       )}
+    </div>
+  )
+}
+
+function AlarmCard({ alarm }: { alarm: AlarmItem }): React.JSX.Element {
+  const updateAlarm = useAppStore((state) => state.updateAlarm)
+  const removeAlarm = useAppStore((state) => state.removeAlarm)
+
+  const stop = (): void => {
+    updateAlarm(alarm.id, {
+      ringing: false,
+      snoozeUntil: null,
+      quietUntil: Date.now() + 60_000
+    })
+    silenceUnlessRinging()
+  }
+
+  const snooze = (): void => {
+    const next = addMinutesHHMM(nowHHMM(), 5)
+    if (!next) return
+    updateAlarm(alarm.id, { ringing: false, snoozeUntil: next })
+    silenceUnlessRinging()
+  }
+
+  const onToggleEnabled = (enabled: boolean): void => {
+    if (!enabled && alarm.ringing) {
+      updateAlarm(alarm.id, {
+        enabled,
+        ringing: false,
+        snoozeUntil: null,
+        quietUntil: Date.now() + 60_000
+      })
+      silenceUnlessRinging()
+      return
+    }
+    updateAlarm(alarm.id, { enabled })
+  }
+
+  const onDelete = (): void => {
+    removeAlarm(alarm.id)
+    silenceUnlessRinging()
+  }
+
+  return (
+    <section className={`miniapp${alarm.ringing ? ' is-ringing' : ''}`} aria-label={alarm.label}>
+      <header className="miniapp__head">
+        <AlarmIcon size={18} />
+        <input
+          className="miniapp__name"
+          aria-label="Alarm name"
+          title="Click to rename"
+          placeholder="Alarm name"
+          value={alarm.label}
+          spellCheck={false}
+          onChange={(event) => updateAlarm(alarm.id, { label: event.target.value })}
+        />
+        <DeleteButton label={alarm.label} onDelete={onDelete} />
+      </header>
+      <div className="miniapp__clock">{formatTime12h(alarm.time)}</div>
+      <div className="miniapp__row">
+        <input
+          type="time"
+          className="dlg__input"
+          aria-label={`${alarm.label} time`}
+          value={alarm.time ?? ''}
+          onChange={(event) => updateAlarm(alarm.id, { time: event.target.value || null })}
+        />
+      </div>
+      <div className="miniapp__row">
+        <SoundSelect
+          label={`${alarm.label} sound`}
+          value={alarm.soundId}
+          onChange={(soundId) => updateAlarm(alarm.id, { soundId })}
+        />
+      </div>
       <label className="settings__check">
         <input
           type="checkbox"
-          checked={alarmEnabled}
-          onChange={(event) => {
-            if (!event.target.checked) stop()
-            setAlarmEnabled(event.target.checked)
-          }}
+          checked={alarm.enabled}
+          onChange={(event) => onToggleEnabled(event.target.checked)}
         />
         Enabled
       </label>
-      {ringing ? (
+      {alarm.ringing ? (
         <div className="miniapp__row">
           <button type="button" className="btn btn--primary" onClick={stop}>
             Stop
@@ -177,107 +245,117 @@ function AlarmApp(): React.JSX.Element {
         </div>
       ) : (
         <p className="miniapp__hint">
-          {!alarmEnabled || !alarmTime
+          {!alarm.enabled || !alarm.time
             ? 'Set a time and enable the alarm.'
-            : snoozeUntil
-              ? `Snoozed until ${snoozeUntil}.`
-              : `Rings daily at ${alarmTime} while the app is open.`}
+            : alarm.snoozeUntil
+              ? `Snoozed until ${formatTime12h(alarm.snoozeUntil)}.`
+              : `Rings daily at ${formatTime12h(alarm.time)} while the app is open.`}
         </p>
       )}
     </section>
   )
 }
 
-function TimerApp(): React.JSX.Element {
-  const alarmSoundId = useAppStore((state) => state.alarmSoundId)
-  const customAlarm = useAppStore((state) => state.customAlarm)
-  const [input, setInput] = useState('5:00')
-  const [totalSec, setTotalSec] = useState<number | null>(null)
-  const [left, setLeft] = useState(0)
-  const [running, setRunning] = useState(false)
-  const [ringing, setRinging] = useState(false)
-  const endsAt = useRef(0)
-  const soundUrl = resolveSoundUrl(alarmSoundId, customAlarm?.url ?? null)
+function TimerCard({ timer, now }: { timer: TimerItem; now: number }): React.JSX.Element {
+  const updateTimer = useAppStore((state) => state.updateTimer)
+  const removeTimer = useAppStore((state) => state.removeTimer)
+  const [draft, setDraft] = useState(() => formatDurationDraft(timer.totalSec))
 
-  useEffect(() => {
-    if (!running) return
-    const timer = setInterval(() => {
-      const remain = Math.max(0, Math.ceil((endsAt.current - Date.now()) / 1000))
-      setLeft(remain)
-      if (remain <= 0) {
-        setRunning(false)
-        startAlarmLoop(soundUrl)
-        setRinging(true)
-      }
-    }, 200)
-    return () => clearInterval(timer)
-  }, [running, soundUrl])
-
-  useEffect(() => stopAlarm, [])
+  const remaining =
+    timer.running && timer.endsAt !== null
+      ? Math.max(0, Math.ceil((timer.endsAt - now) / 1000))
+      : timer.leftSec
+  const idle = !timer.running && !timer.ringing
+  const paused = idle && remaining > 0 && remaining < timer.totalSec
 
   const start = (): void => {
-    const seconds = parseDurationInput(input)
+    const seconds = parseDurationInput(draft)
     if (seconds === null) return
     stopAlarm()
-    setRinging(false)
-    setTotalSec(seconds)
-    setLeft(seconds)
-    endsAt.current = Date.now() + seconds * 1000
-    setRunning(true)
+    updateTimer(timer.id, {
+      totalSec: seconds,
+      leftSec: seconds,
+      endsAt: Date.now() + seconds * 1000,
+      running: true,
+      ringing: false
+    })
   }
 
-  const pauseResume = (): void => {
-    if (running) {
-      setRunning(false)
-    } else if (left > 0) {
-      endsAt.current = Date.now() + left * 1000
-      setRunning(true)
-    }
+  const pause = (): void => {
+    updateTimer(timer.id, { running: false, leftSec: remaining, endsAt: null })
+  }
+
+  const resume = (): void => {
+    if (remaining <= 0) return
+    updateTimer(timer.id, { running: true, endsAt: Date.now() + remaining * 1000 })
   }
 
   const reset = (): void => {
-    setRunning(false)
-    stopAlarm()
-    setRinging(false)
-    setLeft(totalSec ?? 0)
+    updateTimer(timer.id, {
+      running: false,
+      ringing: false,
+      leftSec: timer.totalSec,
+      endsAt: null
+    })
+    setDraft(formatDurationDraft(timer.totalSec))
+    silenceUnlessRinging()
   }
 
-  const progress = totalSec ? Math.min(1, Math.max(0, 1 - left / totalSec)) : 0
+  const onDelete = (): void => {
+    removeTimer(timer.id)
+    silenceUnlessRinging()
+  }
 
-  const paused = !running && !ringing && left > 0
+  const progress = timer.totalSec ? Math.min(1, Math.max(0, 1 - remaining / timer.totalSec)) : 0
 
   return (
-    <section className={`miniapp${ringing ? ' is-ringing' : ''}`} aria-label="Countdown timer">
+    <section className={`miniapp${timer.ringing ? ' is-ringing' : ''}`} aria-label={timer.label}>
       <header className="miniapp__head">
         <TimerIcon size={18} />
-        <h3>Timer</h3>
+        <input
+          className="miniapp__name"
+          aria-label="Timer name"
+          title="Click to rename"
+          placeholder="Timer name"
+          value={timer.label}
+          spellCheck={false}
+          onChange={(event) => updateTimer(timer.id, { label: event.target.value })}
+        />
+        <DeleteButton label={timer.label} onDelete={onDelete} />
       </header>
-      <div className="miniapp__clock">{formatElapsed(left)}</div>
+      <div className="miniapp__clock">{formatElapsed(remaining)}</div>
       <div className="miniapp__bar">
         <span style={{ width: `${progress * 100}%` }} />
       </div>
       <div className="miniapp__row">
         <input
           className="dlg__input"
-          aria-label="Duration (MM:SS)"
-          value={input}
+          aria-label={`${timer.label} duration (MM:SS)`}
+          value={draft}
           placeholder="MM:SS"
           spellCheck={false}
-          disabled={running || paused}
-          onChange={(event) => setInput(event.target.value)}
+          disabled={timer.running || paused}
+          onChange={(event) => setDraft(event.target.value)}
         />
       </div>
       <div className="miniapp__row">
-        {ringing ? (
+        <SoundSelect
+          label={`${timer.label} sound`}
+          value={timer.soundId}
+          onChange={(soundId) => updateTimer(timer.id, { soundId })}
+        />
+      </div>
+      <div className="miniapp__row">
+        {timer.ringing ? (
           <button type="button" className="btn btn--primary" onClick={reset}>
             Stop
           </button>
-        ) : running ? (
-          <button type="button" className="btn btn--primary" onClick={pauseResume}>
+        ) : timer.running ? (
+          <button type="button" className="btn btn--primary" onClick={pause}>
             Pause
           </button>
         ) : paused ? (
-          <button type="button" className="btn btn--primary" onClick={pauseResume}>
+          <button type="button" className="btn btn--primary" onClick={resume}>
             Resume
           </button>
         ) : (
@@ -289,49 +367,55 @@ function TimerApp(): React.JSX.Element {
           Reset
         </button>
       </div>
-      {ringing && <p className="miniapp__hint">Time&apos;s up!</p>}
+      {timer.ringing && <p className="miniapp__hint">Time&apos;s up!</p>}
+      {idle && !timer.ringing && (
+        <p className="miniapp__hint">
+          {paused ? 'Paused — resume or reset.' : 'Set a duration and start.'}
+        </p>
+      )}
     </section>
   )
 }
 
-function StopwatchApp(): React.JSX.Element {
-  const [elapsed, setElapsed] = useState(0)
-  const [running, setRunning] = useState(false)
-  const acc = useRef(0)
-  const startStamp = useRef(0)
+function StopwatchCard({ sw, now }: { sw: StopwatchItem; now: number }): React.JSX.Element {
+  const updateStopwatch = useAppStore((state) => state.updateStopwatch)
+  const removeStopwatch = useAppStore((state) => state.removeStopwatch)
 
-  useEffect(() => {
-    if (!running) return
-    const timer = setInterval(() => {
-      setElapsed((acc.current + Date.now() - startStamp.current) / 1000)
-    }, 100)
-    return () => clearInterval(timer)
-  }, [running])
+  const running = sw.startStamp !== null
+  const elapsedMs = sw.accMs + (sw.startStamp !== null ? Math.max(0, now - sw.startStamp) : 0)
 
   const start = (): void => {
-    startStamp.current = Date.now()
-    setRunning(true)
+    updateStopwatch(sw.id, { startStamp: Date.now() })
   }
 
   const stop = (): void => {
-    acc.current += Date.now() - startStamp.current
-    setElapsed(acc.current / 1000)
-    setRunning(false)
+    if (sw.startStamp === null) return
+    updateStopwatch(sw.id, {
+      accMs: sw.accMs + Math.max(0, Date.now() - sw.startStamp),
+      startStamp: null
+    })
   }
 
   const reset = (): void => {
-    acc.current = 0
-    setElapsed(0)
-    setRunning(false)
+    updateStopwatch(sw.id, { accMs: 0, startStamp: null })
   }
 
   return (
-    <section className="miniapp" aria-label="Stopwatch">
+    <section className="miniapp" aria-label={sw.label}>
       <header className="miniapp__head">
         <StopwatchIcon size={18} />
-        <h3>Stopwatch</h3>
+        <input
+          className="miniapp__name"
+          aria-label="Stopwatch name"
+          title="Click to rename"
+          placeholder="Stopwatch name"
+          value={sw.label}
+          spellCheck={false}
+          onChange={(event) => updateStopwatch(sw.id, { label: event.target.value })}
+        />
+        <DeleteButton label={sw.label} onDelete={() => removeStopwatch(sw.id)} />
       </header>
-      <div className="miniapp__clock">{formatElapsed(elapsed)}</div>
+      <div className="miniapp__clock">{formatElapsed(elapsedMs / 1000)}</div>
       <div className="miniapp__row">
         {running ? (
           <button type="button" className="btn btn--primary" onClick={stop}>
@@ -351,7 +435,46 @@ function StopwatchApp(): React.JSX.Element {
   )
 }
 
+function ClockSection({
+  icon,
+  title,
+  count,
+  onAdd,
+  addLabel,
+  children
+}: {
+  icon: React.JSX.Element
+  title: string
+  count: number
+  onAdd: () => void
+  addLabel: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <section className="clock-section" aria-label={title}>
+      <div className="clock-section__head">
+        {icon}
+        <h2 className="clock-section__title">
+          {title} <span className="clock-section__count">{count}</span>
+        </h2>
+        <button type="button" className="btn btn--ghost" onClick={onAdd} title={addLabel}>
+          <PlusIcon size={14} /> Add
+        </button>
+      </div>
+      <div className="misc__grid">{children}</div>
+    </section>
+  )
+}
+
 function Misc(): React.JSX.Element {
+  const alarms = useAppStore((state) => state.alarms)
+  const timers = useAppStore((state) => state.timers)
+  const stopwatches = useAppStore((state) => state.stopwatches)
+  const addAlarm = useAppStore((state) => state.addAlarm)
+  const addTimer = useAppStore((state) => state.addTimer)
+  const addStopwatch = useAppStore((state) => state.addStopwatch)
+  const now = useNowMs(250)
+
   return (
     <main className="misc">
       <div className="misc__inner">
@@ -361,15 +484,49 @@ function Misc(): React.JSX.Element {
             <p className="misc__subtitle">Small utilities that live beside your notes.</p>
           </div>
         </header>
-        <div className="misc__grid">
-          <AlarmApp />
-          <TimerApp />
-          <StopwatchApp />
-          <section className="miniapp miniapp--soon" aria-label="Coming soon">
-            <div className="miniapp__soon">More soon</div>
-            <p className="miniapp__hint">New mini-apps will appear here.</p>
-          </section>
-        </div>
+        <SoundSettings />
+        <ClockSection
+          icon={<AlarmIcon size={17} />}
+          title="Alarms"
+          count={alarms.length}
+          onAdd={() => addAlarm()}
+          addLabel="Add alarm"
+        >
+          {alarms.map((alarm) => (
+            <AlarmCard key={alarm.id} alarm={alarm} />
+          ))}
+          {alarms.length === 0 && (
+            <p className="miniapp__hint">No alarms yet — add one to get started.</p>
+          )}
+        </ClockSection>
+        <ClockSection
+          icon={<TimerIcon size={17} />}
+          title="Timers"
+          count={timers.length}
+          onAdd={() => addTimer()}
+          addLabel="Add timer"
+        >
+          {timers.map((timer) => (
+            <TimerCard key={timer.id} timer={timer} now={now} />
+          ))}
+          {timers.length === 0 && (
+            <p className="miniapp__hint">No timers yet — add one to get started.</p>
+          )}
+        </ClockSection>
+        <ClockSection
+          icon={<StopwatchIcon size={17} />}
+          title="Stopwatches"
+          count={stopwatches.length}
+          onAdd={() => addStopwatch()}
+          addLabel="Add stopwatch"
+        >
+          {stopwatches.map((sw) => (
+            <StopwatchCard key={sw.id} sw={sw} now={now} />
+          ))}
+          {stopwatches.length === 0 && (
+            <p className="miniapp__hint">No stopwatches yet — add one to get started.</p>
+          )}
+        </ClockSection>
       </div>
     </main>
   )

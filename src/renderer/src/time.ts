@@ -50,3 +50,13 @@ export function formatElapsed(totalSeconds: number): string {
   const minutes = Math.floor(clamped / 60)
   return `${pad(minutes)}:${pad(clamped % 60)}`
 }
+
+/** `HH:MM` (24h) -> 12-hour display (`2:30 PM`). Null/invalid passes through. */
+export function formatTime12h(time: string | null): string {
+  if (time === null) return '--:--'
+  if (!isValidTimeHHMM(time)) return time
+  const [h, m] = time.split(':').map(Number)
+  const suffix = h >= 12 ? 'PM' : 'AM'
+  const hour = h % 12 === 0 ? 12 : h % 12
+  return `${hour}:${pad(m)} ${suffix}`
+}

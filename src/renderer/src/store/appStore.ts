@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { isKnownSoundId } from '../alarm'
 import type { ImageSide } from '../images'
 import { noteFileBase, orderedNotes, titleFromFileName, uniqueFileName } from '../notes'
 import { parseIcs } from '../ical'
@@ -91,6 +92,38 @@ export function clampSplitRatio(ratio: unknown): number {
 /** Calendar display mode. Kept transient (not persisted). */
 export type CalendarView = 'month' | 'week' | 'day'
 
+/** One daily clock alarm. `quietUntil` suppresses re-fire right after stop. */
+export interface AlarmItem {
+  id: string
+  label: string
+  time: string | null
+  enabled: boolean
+  ringing: boolean
+  snoozeUntil: string | null
+  quietUntil: number
+  soundId: string
+}
+
+/** One countdown timer. Progress derives from `endsAt` while running. */
+export interface TimerItem {
+  id: string
+  label: string
+  totalSec: number
+  leftSec: number
+  endsAt: number | null
+  running: boolean
+  ringing: boolean
+  soundId: string
+}
+
+/** One stopwatch. Elapsed = accMs + (running ? now - startStamp : 0). */
+export interface StopwatchItem {
+  id: string
+  label: string
+  accMs: number
+  startStamp: number | null
+}
+
 interface AppState {
   coreState: CoreState
   notes: Note[]
@@ -137,8 +170,12 @@ interface AppState {
   splitRatio: number
   calendarView: CalendarView
   calendarCursor: string
-  alarmTime: string | null
-  alarmEnabled: boolean
+  /** Daily clock alarms (HH:MM). Multiple instances allowed. */
+  alarms: AlarmItem[]
+  /** Countdown timers, driven by wall-clock endsAt timestamps. */
+  timers: TimerItem[]
+  /** Stopwatches, driven by accumulated ms + a running start stamp. */
+  stopwatches: StopwatchItem[]
   alarmSoundId: string
   customAlarm: { name: string; url: string } | null
   setCoreState: (state: CoreState) => void
@@ -158,8 +195,15 @@ interface AppState {
   setCalendarView: (view: CalendarView) => void
   setCalendarCursor: (date: string) => void
   openDay: (date: string) => void
-  setAlarmTime: (time: string | null) => void
-  setAlarmEnabled: (enabled: boolean) => void
+  addAlarm: (time?: string | null) => string
+  removeAlarm: (id: string) => void
+  updateAlarm: (id: string, patch: Partial<AlarmItem>) => void
+  addTimer: (totalSec?: number) => string
+  removeTimer: (id: string) => void
+  updateTimer: (id: string, patch: Partial<TimerItem>) => void
+  addStopwatch: () => string
+  removeStopwatch: (id: string) => void
+  updateStopwatch: (id: string, patch: Partial<StopwatchItem>) => void
   setAlarmSoundId: (id: string) => void
   setCustomAlarm: (custom: { name: string; url: string } | null) => void
   openNav: (kind: NavKey) => void
@@ -352,6 +396,110 @@ function restoreAlarmSound(saved: { alarmSoundId?: unknown; customAlarm?: unknow
   return { alarmSoundId, customAlarm }
 }
 
+type SavedClocks = {
+  alarms?: unknown
+  timers?: unknown
+  stopwatches?: unknown
+  alarmTime?: unknown
+  alarmEnabled?: unknown
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null
+}
+
+/**
+ * Restore clock alarms, migrating the pre-list single alarm
+ * (`alarmTime`/`alarmEnabled`) into a one-item list.
+ */
+function restoreAlarms(saved: SavedClocks): AlarmItem[] {
+  const out: AlarmItem[] = []
+  if (Array.isArray(saved.alarms)) {
+    for (const raw of saved.alarms) {
+      const item = asRecord(raw)
+      if (!item || typeof item.id !== 'string') continue
+      out.push({
+        id: item.id,
+        label: typeof item.label === 'string' && item.label ? item.label : 'Alarm',
+        soundId:
+          typeof item.soundId === 'string' && isKnownSoundId(item.soundId)
+            ? item.soundId
+            : 'classic',
+        time: typeof item.time === 'string' ? item.time : null,
+        enabled: item.enabled === true,
+        ringing: false,
+        snoozeUntil: typeof item.snoozeUntil === 'string' ? item.snoozeUntil : null,
+        quietUntil: 0
+      })
+    }
+  }
+  if (out.length === 0 && typeof saved.alarmTime === 'string') {
+    out.push({
+      id: uid(),
+      label: 'Alarm',
+      soundId: 'classic',
+      time: saved.alarmTime,
+      enabled: saved.alarmEnabled === true,
+      ringing: false,
+      snoozeUntil: null,
+      quietUntil: 0
+    })
+  }
+  return out
+}
+
+/**
+ * Restore timers. Ones that expired while the app was closed come back
+ * ringing (dismiss to clear); running ones keep counting from `endsAt`.
+ */
+function restoreTimers(saved: SavedClocks): TimerItem[] {
+  if (!Array.isArray(saved.timers)) return []
+  const now = Date.now()
+  const out: TimerItem[] = []
+  for (const raw of saved.timers) {
+    const item = asRecord(raw)
+    if (!item || typeof item.id !== 'string') continue
+    const totalSec =
+      typeof item.totalSec === 'number' && item.totalSec > 0 ? Math.floor(item.totalSec) : 60
+    const endsAt = typeof item.endsAt === 'number' ? item.endsAt : null
+    const running = item.running === true && endsAt !== null
+    const expired = running && endsAt !== null && endsAt <= now
+    out.push({
+      id: item.id,
+      label: typeof item.label === 'string' && item.label ? item.label : 'Timer',
+      soundId:
+        typeof item.soundId === 'string' && isKnownSoundId(item.soundId) ? item.soundId : 'classic',
+      totalSec,
+      leftSec:
+        typeof item.leftSec === 'number' && item.leftSec >= 0
+          ? Math.min(Math.floor(item.leftSec), totalSec)
+          : totalSec,
+      endsAt: expired ? null : endsAt,
+      running: running && !expired,
+      ringing: expired
+    })
+  }
+  return out
+}
+
+/** Restore stopwatches; running ones keep ticking from `startStamp`. */
+function restoreStopwatches(saved: SavedClocks): StopwatchItem[] {
+  if (!Array.isArray(saved.stopwatches)) return []
+  const out: StopwatchItem[] = []
+  for (const raw of saved.stopwatches) {
+    const item = asRecord(raw)
+    if (!item || typeof item.id !== 'string') continue
+    const startStamp = typeof item.startStamp === 'number' ? item.startStamp : null
+    out.push({
+      id: item.id,
+      label: typeof item.label === 'string' && item.label ? item.label : 'Stopwatch',
+      accMs: typeof item.accMs === 'number' && item.accMs >= 0 ? Math.floor(item.accMs) : 0,
+      startStamp
+    })
+  }
+  return out
+}
+
 type PersistSet = (partial: Partial<AppState>) => void
 
 /** Fire-and-forget vault writes; surface failures in the planner banner. */
@@ -417,8 +565,9 @@ export const useAppStore = create<AppState>()(
       splitRatio: SPLIT_RATIO_DEFAULT,
       calendarView: 'month',
       calendarCursor: todayISO(),
-      alarmTime: null,
-      alarmEnabled: false,
+      alarms: [],
+      timers: [],
+      stopwatches: [],
       alarmSoundId: 'classic',
       customAlarm: null,
       setCoreState: (coreState) => set({ coreState }),
@@ -467,8 +616,73 @@ export const useAppStore = create<AppState>()(
         set({ calendarView: 'day', calendarCursor: date })
         get().openNav('calendar')
       },
-      setAlarmTime: (alarmTime) => set({ alarmTime }),
-      setAlarmEnabled: (alarmEnabled) => set({ alarmEnabled }),
+      addAlarm: (time) => {
+        const id = uid()
+        set((state) => ({
+          alarms: [
+            ...state.alarms,
+            {
+              id,
+              label: `Alarm ${state.alarms.length + 1}`,
+              soundId: state.alarmSoundId,
+              time: time ?? null,
+              enabled: time !== null && time !== undefined,
+              ringing: false,
+              snoozeUntil: null,
+              quietUntil: 0
+            }
+          ]
+        }))
+        return id
+      },
+      removeAlarm: (id) =>
+        set((state) => ({ alarms: state.alarms.filter((alarm) => alarm.id !== id) })),
+      updateAlarm: (id, patch) =>
+        set((state) => ({
+          alarms: state.alarms.map((alarm) => (alarm.id === id ? { ...alarm, ...patch } : alarm))
+        })),
+      addTimer: (totalSec) => {
+        const id = uid()
+        const seconds = totalSec ?? 300
+        set((state) => ({
+          timers: [
+            ...state.timers,
+            {
+              id,
+              label: `Timer ${state.timers.length + 1}`,
+              soundId: state.alarmSoundId,
+              totalSec: seconds,
+              leftSec: seconds,
+              endsAt: null,
+              running: false,
+              ringing: false
+            }
+          ]
+        }))
+        return id
+      },
+      removeTimer: (id) =>
+        set((state) => ({ timers: state.timers.filter((timer) => timer.id !== id) })),
+      updateTimer: (id, patch) =>
+        set((state) => ({
+          timers: state.timers.map((timer) => (timer.id === id ? { ...timer, ...patch } : timer))
+        })),
+      addStopwatch: () => {
+        const id = uid()
+        set((state) => ({
+          stopwatches: [
+            ...state.stopwatches,
+            { id, label: `Stopwatch ${state.stopwatches.length + 1}`, accMs: 0, startStamp: null }
+          ]
+        }))
+        return id
+      },
+      removeStopwatch: (id) =>
+        set((state) => ({ stopwatches: state.stopwatches.filter((sw) => sw.id !== id) })),
+      updateStopwatch: (id, patch) =>
+        set((state) => ({
+          stopwatches: state.stopwatches.map((sw) => (sw.id === id ? { ...sw, ...patch } : sw))
+        })),
       setAlarmSoundId: (alarmSoundId) => set({ alarmSoundId }),
       setCustomAlarm: (customAlarm) => set({ customAlarm }),
       openNav: (kind) =>
@@ -1356,8 +1570,9 @@ export const useAppStore = create<AppState>()(
         splitTabId: state.splitTabId,
         splitRatio: state.splitRatio,
         localCalendarColor: state.localCalendarColor,
-        alarmTime: state.alarmTime,
-        alarmEnabled: state.alarmEnabled,
+        alarms: state.alarms,
+        timers: state.timers,
+        stopwatches: state.stopwatches,
         alarmSoundId: state.alarmSoundId,
         customAlarm: state.customAlarm
       }),
@@ -1391,8 +1606,9 @@ export const useAppStore = create<AppState>()(
             | 'splitTabId'
             | 'splitRatio'
             | 'localCalendarColor'
-            | 'alarmTime'
-            | 'alarmEnabled'
+            | 'alarms'
+            | 'timers'
+            | 'stopwatches'
             | 'alarmSoundId'
             | 'customAlarm'
           >
@@ -1505,8 +1721,9 @@ export const useAppStore = create<AppState>()(
             typeof saved.localCalendarColor === 'string' && saved.localCalendarColor
               ? saved.localCalendarColor
               : CALENDAR_COLORS[0],
-          alarmTime: typeof saved.alarmTime === 'string' ? saved.alarmTime : null,
-          alarmEnabled: saved.alarmEnabled ?? false,
+          alarms: restoreAlarms(saved),
+          timers: restoreTimers(saved),
+          stopwatches: restoreStopwatches(saved),
           ...restoreAlarmSound(saved),
           lastSeenAgentId
         }
