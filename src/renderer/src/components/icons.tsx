@@ -173,6 +173,14 @@ export function ChevronDownIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function ChevronUpIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <path d="m18 15-6-6-6 6" />
+    </IconBase>
+  )
+}
+
 export function ChevronLeftIcon(props: IconProps): React.JSX.Element {
   return (
     <IconBase {...props}>

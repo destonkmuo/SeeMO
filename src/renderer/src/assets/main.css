@@ -1285,11 +1285,82 @@ button.sidebar__today-row:hover {
 /* --------------------------------------------------------------------- note */
 
 .note {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+
+/* Floating find-in-note bar, top-right like a browser. */
+.findbar {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(28, 28, 28, 0.97);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  animation: drop-hint-in 150ms ease;
+}
+
+.findbar__input {
+  width: 170px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ev-c-text-1);
+  font: inherit;
+  font-size: 13px;
+  user-select: text;
+}
+
+.findbar__input::placeholder {
+  color: var(--ev-c-text-3);
+}
+
+.findbar__count {
+  flex: none;
+  min-width: 44px;
+  text-align: right;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ev-c-text-3);
+}
+
+.findbar__btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ev-c-text-2);
+  cursor: pointer;
+}
+
+.findbar__btn:hover {
+  background: var(--hover-strong);
+  color: var(--ev-c-text-1);
+}
+
+/* Match paint (Custom Highlight API): all hits soft, current hit solid. */
+::highlight(note-find) {
+  background-color: rgba(255, 196, 60, 0.38);
+}
+
+::highlight(note-find-current) {
+  background-color: var(--accent);
+  color: #fff;
 }
 
 .note--empty {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import BlockEditor from '../components/BlockEditor'
+import FindBar from '../components/FindBar'
 import { BLOCK_START, joinBlocks, splitBlocks } from '../markdown'
 import {
   contentImageSrcs,
@@ -33,6 +34,31 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
   const [dropActive, setDropActive] = useState(false)
   const [dropStatus, setDropStatus] = useState<{ msg: string; error: boolean } | null>(null)
   const dropStatusTimer = useRef<number | null>(null)
+  const [findOpen, setFindOpen] = useState(false)
+  const noteRef = useRef<HTMLElement>(null)
+
+  // Ctrl/Cmd+F opens find-in-note. preventDefault stops the (absent) native
+  // find so the shortcut never feels dead.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === 'f'
+      ) {
+        event.preventDefault()
+        setFindOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // A new note starts with a closed find bar.
+  useEffect(() => {
+    setFindOpen(false)
+  }, [noteId])
 
   // Drop results surface in the UI (success and failure alike) so a silent
   // drop is impossible: if nothing lands, the banner says why.
@@ -234,6 +260,7 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
 
   return (
     <main
+      ref={noteRef}
       className="note"
       onDragOver={(event) => {
         const types = dragTypes(event)
@@ -329,6 +356,10 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
         </div>
       </div>
 
+      {findOpen && note && (
+        <FindBar scope={noteRef} content={note.content} onClose={() => setFindOpen(false)} />
+      )}
+
       <footer className="note__hints" aria-label="Editor shortcuts">
         <span>
           <kbd>Shift</kbd>+<kbd>Enter</kbd> new block
@@ -350,6 +381,9 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
         </span>
         <span>
           <kbd>img</kbd> hover → Unlock
+        </span>
+        <span>
+          <kbd>Ctrl</kbd>+<kbd>F</kbd> find
         </span>
       </footer>
     </main>
