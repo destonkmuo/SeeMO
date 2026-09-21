@@ -1,7 +1,5 @@
 # SeeMO
 
-This is a dev push test
-
 A desktop notes app built with Electron, React, and TypeScript. Notes live as
 plain Markdown files in a local vault, with tabs, dockable images, tasks, a
 calendar, and a voice-driven assistant.
