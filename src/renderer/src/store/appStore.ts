@@ -243,6 +243,7 @@ interface AppState {
   deleteTabGroup: (id: string) => void
   assignTabToGroup: (tabId: string, groupId: string | null) => void
   toggleTabGroupCollapsed: (id: string) => void
+  moveTabGroup: (dragId: string, targetId: string | null, before: boolean) => void
   restoreNote: (id: string) => void
   destroyNote: (id: string) => void
   emptyTrash: () => void
@@ -879,7 +880,9 @@ export const useAppStore = create<AppState>()(
         const groups = get().tabGroups
         const group: TabGroup = {
           id: uid(),
-          name: (name ?? '').trim() || 'New group',
+          // New groups start unnamed so the rename input opens empty and
+          // the user only types a name if they want one.
+          name: (name ?? '').trim(),
           color:
             color && TAB_GROUP_COLORS.includes(color as (typeof TAB_GROUP_COLORS)[number])
               ? color
@@ -896,9 +899,8 @@ export const useAppStore = create<AppState>()(
       },
       renameTabGroup: (id, name) =>
         set((state) => ({
-          tabGroups: state.tabGroups.map((g) =>
-            g.id === id ? { ...g, name: name.trim() || g.name } : g
-          )
+          // Empty names are allowed so a group can stay unnamed.
+          tabGroups: state.tabGroups.map((g) => (g.id === id ? { ...g, name: name.trim() } : g))
         })),
       setTabGroupColor: (id, color) => {
         if (!TAB_GROUP_COLORS.includes(color as (typeof TAB_GROUP_COLORS)[number])) return
@@ -933,6 +935,20 @@ export const useAppStore = create<AppState>()(
             ? state.collapsedTabGroups.filter((g) => g !== id)
             : [...state.collapsedTabGroups, id]
         })),
+      moveTabGroup: (dragId, targetId, before) =>
+        set((state) => {
+          if (dragId === targetId) return {}
+          const from = state.tabGroups.findIndex((g) => g.id === dragId)
+          if (from < 0) return {}
+          const dragged = state.tabGroups[from]
+          const without = state.tabGroups.filter((g) => g.id !== dragId)
+          // Dropped on empty bar space (or a stale target): pin to the end.
+          if (!targetId) return { tabGroups: [...without, dragged] }
+          let to = without.findIndex((g) => g.id === targetId)
+          if (to < 0) return { tabGroups: [...without, dragged] }
+          if (!before) to += 1
+          return { tabGroups: [...without.slice(0, to), dragged, ...without.slice(to)] }
+        }),
       closeTab: (id) =>
         set((state) => {
           const index = state.tabs.findIndex((t) => t.id === id)

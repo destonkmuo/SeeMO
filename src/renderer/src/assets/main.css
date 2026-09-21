@@ -1058,8 +1058,24 @@ button.sidebar__today-row:hover {
   font: inherit;
   font-size: 12px;
   font-weight: 600;
-  cursor: pointer;
+  cursor: grab;
   white-space: nowrap;
+}
+
+.tabgroup__head:active {
+  cursor: grabbing;
+}
+
+.tabgroup--dragging {
+  opacity: 0.35;
+}
+
+.tabgroup--drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.tabgroup--drop-after {
+  box-shadow: inset -2px 0 0 var(--accent);
 }
 
 .tabgroup__head:hover {
@@ -1078,6 +1094,10 @@ button.sidebar__today-row:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tabgroup__name:empty {
+  display: none;
 }
 
 .tabgroup__count {
@@ -1834,6 +1854,74 @@ button.sidebar__today-row:hover {
 }
 
 .block__placeholder {
+  color: var(--ev-c-text-3);
+}
+
+/* `/` insert menu: floats under the active block, inside its row. */
+.slash-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  width: 290px;
+  max-height: 310px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(28, 28, 28, 0.98);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+  animation: drop-hint-in 130ms ease;
+}
+
+.slash-menu__empty {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--ev-c-text-3);
+}
+
+.slash-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ev-c-text-1);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 7px 9px;
+  cursor: pointer;
+}
+
+.slash-menu__item.is-selected {
+  background: var(--hover-strong);
+}
+
+.slash-menu__badge {
+  flex: none;
+  width: 30px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ev-c-text-3);
+}
+
+.slash-menu__item.is-selected .slash-menu__badge {
+  color: var(--accent);
+}
+
+.slash-menu__title {
+  flex: 1;
+  min-width: 0;
+}
+
+.slash-menu__hint {
+  flex: none;
+  font-size: 11.5px;
   color: var(--ev-c-text-3);
 }
 
@@ -4331,6 +4419,12 @@ select.dlg__input {
   white-space: nowrap;
   font-size: 12.5px;
   color: var(--ev-c-text-3);
+}
+
+.spotlight__hit {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .spotlight__snippet mark,

@@ -45,6 +45,7 @@ function TabBar(): React.JSX.Element {
   const goForwardTab = useAppStore((state) => state.goForwardTab)
   const closeTab = useAppStore((state) => state.closeTab)
   const moveTab = useAppStore((state) => state.moveTab)
+  const moveTabGroup = useAppStore((state) => state.moveTabGroup)
   const setSplitTab = useAppStore((state) => state.setSplitTab)
   const createTabGroup = useAppStore((state) => state.createTabGroup)
   const renameTabGroup = useAppStore((state) => state.renameTabGroup)
@@ -57,10 +58,13 @@ function TabBar(): React.JSX.Element {
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropHint, setDropHint] = useState<DropHint | null>(null)
+  const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null)
+  const [groupDropHint, setGroupDropHint] = useState<DropHint | null>(null)
   const [menu, setMenu] = useState<MenuState>(null)
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
   const dragIdRef = useRef<string | null>(null)
+  const dragGroupRef = useRef<string | null>(null)
 
   // Browser-style history: Back revisits the previously active tab,
   // Forward redoes it. New visits truncate the forward trail.
@@ -85,8 +89,11 @@ function TabBar(): React.JSX.Element {
 
   const clearDrag = (): void => {
     dragIdRef.current = null
+    dragGroupRef.current = null
     setDraggingId(null)
     setDropHint(null)
+    setDraggingGroupId(null)
+    setGroupDropHint(null)
   }
 
   // Which side of the hovered tab the dragged tab would land on.
@@ -104,11 +111,25 @@ function TabBar(): React.JSX.Element {
   }
 
   const onListDrop = (event: React.DragEvent<HTMLDivElement>): void => {
-    // Only fires for empty bar space; tab drops stop propagation above.
+    // Only fires for empty bar space; tab/group drops stop propagation above.
     event.preventDefault()
     const dragId = dragIdRef.current
+    const dragGroupId = dragGroupRef.current
     clearDrag()
-    if (dragId) moveTab(dragId, null, false)
+    if (dragGroupId) moveTabGroup(dragGroupId, null, false)
+    else if (dragId) moveTab(dragId, null, false)
+  }
+
+  const onGroupDrop = (event: React.DragEvent<HTMLDivElement>, groupId: string): void => {
+    // Let tab drags bubble past the group container to the tab/list handlers.
+    if (!dragGroupRef.current) return
+    event.preventDefault()
+    event.stopPropagation()
+    const dragGroup = dragGroupRef.current
+    clearDrag()
+    if (dragGroup && dragGroup !== groupId) {
+      moveTabGroup(dragGroup, groupId, positionFromEvent(event))
+    }
   }
 
   const startGroupRename = (id: string, name: string): void => {
@@ -149,13 +170,19 @@ function TabBar(): React.JSX.Element {
         }}
         onDragEnd={clearDrag}
         onDragOver={(event) => {
+          // Group-header drags are handled by the group container;
+          // don't swallow them here so the group can be the drop target.
+          if (dragGroupRef.current) return
           event.preventDefault()
           event.dataTransfer.dropEffect = 'move'
           if (dragIdRef.current && dragIdRef.current !== tab.id) {
             setDropHint({ id: tab.id, before: positionFromEvent(event) })
           }
         }}
-        onDrop={(event) => onTabDrop(event, tab.id)}
+        onDrop={(event) => {
+          if (dragGroupRef.current) return
+          onTabDrop(event, tab.id)
+        }}
         onContextMenu={(event) => {
           event.preventDefault()
           setMenu({ kind: 'tab', tabId: tab.id, ...clampMenu(event.clientX, event.clientY) })
@@ -256,19 +283,39 @@ function TabBar(): React.JSX.Element {
           const collapsed =
             collapsedTabGroups.includes(group.id) && !groupTabs.some((t) => t.id === activeTabId)
           const renaming = renamingGroupId === group.id
+          const groupHint = groupDropHint?.id === group.id ? groupDropHint : null
+          const displayName = group.name.trim() || 'Unnamed group'
           return (
             <div
               key={group.id}
-              className="tabgroup"
+              className={`tabgroup${draggingGroupId === group.id ? ' tabgroup--dragging' : ''}${groupHint ? (groupHint.before ? ' tabgroup--drop-before' : ' tabgroup--drop-after') : ''}`}
               style={{ '--group-color': group.color } as CSSProperties}
+              onDragOver={(event) => {
+                // Only group-header drags reorder groups; tab drags are
+                // handled by the inner tabs and stop propagation there.
+                if (dragGroupRef.current && dragGroupRef.current !== group.id) {
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = 'move'
+                  setGroupDropHint({ id: group.id, before: positionFromEvent(event) })
+                }
+              }}
+              onDrop={(event) => onGroupDrop(event, group.id)}
             >
               <button
                 type="button"
                 className="tabgroup__head"
-                title={`${group.name} · click to ${collapsed ? 'expand' : 'collapse'} · double-click to rename`}
+                draggable={!renaming}
+                title={`${displayName} · click to ${collapsed ? 'expand' : 'collapse'} · double-click to rename · drag to move`}
                 aria-expanded={!collapsed}
                 onClick={() => toggleTabGroupCollapsed(group.id)}
                 onDoubleClick={() => startGroupRename(group.id, group.name)}
+                onDragStart={(event) => {
+                  event.stopPropagation()
+                  dragGroupRef.current = group.id
+                  setDraggingGroupId(group.id)
+                  event.dataTransfer.effectAllowed = 'move'
+                }}
+                onDragEnd={clearDrag}
                 onContextMenu={(event) => {
                   event.preventDefault()
                   event.stopPropagation()
@@ -286,7 +333,9 @@ function TabBar(): React.JSX.Element {
                     autoFocus
                     value={renameDraft}
                     aria-label="Group name"
+                    placeholder="New group"
                     onClick={(event) => event.stopPropagation()}
+                    onDragStart={(event) => event.stopPropagation()}
                     onChange={(event) => setRenameDraft(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter') commitGroupRename()
@@ -349,7 +398,7 @@ function TabBar(): React.JSX.Element {
               }}
             >
               <span className="tabmenu__dot" style={{ background: group.color }} />
-              {group.name}
+              {group.name.trim() || 'Unnamed group'}
             </button>
           ))}
           {menuTabGroup && (
@@ -380,7 +429,7 @@ function TabBar(): React.JSX.Element {
         <div
           className="note-menu tabmenu"
           role="menu"
-          aria-label={`${menuGroup.name} group`}
+          aria-label={`${menuGroup.name.trim() || 'Unnamed group'} group`}
           style={{ left: menu.x, top: menu.y }}
           onContextMenu={(event) => event.preventDefault()}
         >

@@ -7,6 +7,133 @@ import type { ImageControls } from '../images'
 /** Native DnD payload marking a drag as a block reorder (not a picture). */
 const BLOCK_MIME = 'application/x-seemo-block'
 
+interface SlashCommand {
+  id: string
+  title: string
+  badge: string
+  hint: string
+  keywords: string
+  /** Skeleton to insert; `|` marks where the caret lands. */
+  insert: string
+}
+
+/**
+ * `/` menu: inserts raw markdown skeletons (still saved as `$…$`, ```, …),
+ * so the document stays plain text under the WYSIWYG surface.
+ */
+const SLASH_COMMANDS: SlashCommand[] = [
+  { id: 'h1', title: 'Heading 1', badge: 'H1', hint: '#', keywords: 'title header', insert: '# |' },
+  {
+    id: 'h2',
+    title: 'Heading 2',
+    badge: 'H2',
+    hint: '##',
+    keywords: 'title header',
+    insert: '## |'
+  },
+  {
+    id: 'h3',
+    title: 'Heading 3',
+    badge: 'H3',
+    hint: '###',
+    keywords: 'title header',
+    insert: '### |'
+  },
+  {
+    id: 'bullet',
+    title: 'Bullet list',
+    badge: '•',
+    hint: '-',
+    keywords: 'unordered point',
+    insert: '- |'
+  },
+  {
+    id: 'numbered',
+    title: 'Numbered list',
+    badge: '1.',
+    hint: '1.',
+    keywords: 'ordered',
+    insert: '1. |'
+  },
+  {
+    id: 'todo',
+    title: 'To-do',
+    badge: '☐',
+    hint: '- [ ]',
+    keywords: 'checkbox task check',
+    insert: '- [ ] |'
+  },
+  { id: 'quote', title: 'Quote', badge: '>', hint: '>', keywords: 'cite callout', insert: '> |' },
+  {
+    id: 'divider',
+    title: 'Divider',
+    badge: '—',
+    hint: '---',
+    keywords: 'separator rule hr',
+    insert: '---'
+  },
+  {
+    id: 'code',
+    title: 'Code block',
+    badge: '{}',
+    hint: '```js',
+    keywords: 'snippet javascript runnable',
+    insert: '```js\n|\n```'
+  },
+  {
+    id: 'math',
+    title: 'Math inline',
+    badge: '∑',
+    hint: '$…$',
+    keywords: 'formula latex equation',
+    insert: '$|$'
+  },
+  {
+    id: 'mathblock',
+    title: 'Math block',
+    badge: '$$',
+    hint: '$$…$$',
+    keywords: 'display formula latex equation',
+    insert: '$$\n|\n$$'
+  },
+  {
+    id: 'image',
+    title: 'Image',
+    badge: 'img',
+    hint: '![](url)',
+    keywords: 'picture photo embed',
+    insert: '![](|)'
+  },
+  {
+    id: 'link',
+    title: 'Link',
+    badge: '[]',
+    hint: '[text](url)',
+    keywords: 'url href anchor',
+    insert: '[|](url)'
+  }
+]
+
+/**
+ * Slash token before the caret on the current line (`/ma` in `hi /ma`),
+ * or null. The char before `/` must be start/whitespace so `a/b` and
+ * `https://` never open the menu.
+ */
+const slashToken = (value: string, caret: number): string | null => {
+  const before = value.slice(0, caret)
+  const line = before.slice(before.lastIndexOf('\n') + 1)
+  const match = /(^|\s)\/([\w-]*)$/.exec(line)
+  return match ? match[2] : null
+}
+
+const filteredSlash = (token: string): SlashCommand[] => {
+  const needle = token.toLowerCase()
+  if (!needle) return SLASH_COMMANDS
+  return SLASH_COMMANDS.filter(
+    (cmd) => cmd.title.toLowerCase().includes(needle) || cmd.keywords.includes(needle)
+  )
+}
+
 interface BlockEditorProps {
   /** Raw markdown for the whole note. */
   value: string
@@ -24,6 +151,49 @@ interface BlockEditorProps {
  * a block, Tab indents (never leaves the editor), Backspace at the start
  * merges into the previous one, Escape leaves edit mode.
  */
+function SlashMenu({
+  token,
+  selected,
+  onHover,
+  onPick
+}: {
+  token: string
+  selected: number
+  onHover: (index: number) => void
+  onPick: (cmd: SlashCommand) => void
+}): React.JSX.Element {
+  const items = filteredSlash(token)
+  const safe = items.length === 0 ? 0 : selected % items.length
+  return (
+    <div className="slash-menu" role="listbox" aria-label="Insert block">
+      {items.length === 0 ? (
+        <p className="slash-menu__empty">No matches</p>
+      ) : (
+        items.map((cmd, i) => (
+          <button
+            key={cmd.id}
+            type="button"
+            role="option"
+            aria-selected={i === safe}
+            className={`slash-menu__item${i === safe ? ' is-selected' : ''}`}
+            // mousedown default would blur the textarea (closing edit mode)
+            // before click fires; prevent it so picking keeps the caret.
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onPick(cmd)}
+            onMouseEnter={() => onHover(i)}
+          >
+            <span className="slash-menu__badge" aria-hidden="true">
+              {cmd.badge}
+            </span>
+            <span className="slash-menu__title">{cmd.title}</span>
+            <span className="slash-menu__hint">{cmd.hint}</span>
+          </button>
+        ))
+      )}
+    </div>
+  )
+}
+
 function BlockEditor({
   value,
   onChange,
@@ -34,6 +204,8 @@ function BlockEditor({
   const [active, setActive] = useState<number | null>(null)
   const [dropHint, setDropHint] = useState<{ index: number; before: boolean } | null>(null)
   const [draggingId, setDraggingId] = useState<number | null>(null)
+  const [slash, setSlash] = useState<{ index: number; token: string } | null>(null)
+  const [slashSel, setSlashSel] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const caretRef = useRef<number | null>(null)
   const indentCaretRef = useRef<number | null>(null)
@@ -80,12 +252,17 @@ function BlockEditor({
   }, [active])
 
   // Keep the focused block's textarea exactly as tall as its content.
-  // Also restores the caret after a same-block Tab indent.
+  // Also restores the caret after a same-block Tab indent — or any same-block
+  // commit that stages caretRef (slash-menu insert, Alt+Arrow landing here).
   useLayoutEffect(() => {
     const el = editorFor(active)
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${el.scrollHeight}px`
+    if (caretRef.current !== null && document.activeElement === el) {
+      el.setSelectionRange(caretRef.current, caretRef.current)
+      caretRef.current = null
+    }
     if (indentCaretRef.current !== null && document.activeElement === el) {
       el.setSelectionRange(indentCaretRef.current, indentCaretRef.current)
       indentCaretRef.current = null
@@ -243,11 +420,72 @@ function BlockEditor({
 
   const activate = (index: number): void => {
     caretRef.current = blocks[index]?.length ?? 0
+    setSlash(null)
     setActive(index)
+  }
+
+  /** Refresh the `/` menu from the caret; call on change/click/keys. */
+  const refreshSlash = (index: number, value: string, caret: number): void => {
+    const token = slashToken(value, caret)
+    if (token === null) {
+      if (slash !== null) setSlash(null)
+      return
+    }
+    if (slash === null || slash.index !== index || slash.token !== token) {
+      setSlashSel(0)
+      setSlash({ index, token })
+    }
+  }
+
+  const applySlash = (index: number, cmd: SlashCommand): void => {
+    const el = editorFor(index)
+    const text = blocks[index] ?? ''
+    const caret = el ? el.selectionStart : text.length
+    const lineStart = text.lastIndexOf('\n', caret - 1) + 1
+    const match = /(^|\s)\/[\w-]*$/.exec(text.slice(lineStart, caret))
+    if (!match) {
+      setSlash(null)
+      return
+    }
+    const slashStart = lineStart + match.index + match[1].length
+    const marker = cmd.insert.indexOf('|')
+    const head =
+      marker >= 0 ? cmd.insert.slice(0, marker) + cmd.insert.slice(marker + 1) : cmd.insert
+    caretRef.current = slashStart + (marker >= 0 ? marker : head.length)
+    const next = blocks.slice()
+    next[index] = text.slice(0, slashStart) + head + text.slice(caret)
+    setSlash(null)
+    commit(next)
   }
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>, index: number): void => {
     const el = event.currentTarget
+
+    // The `/` menu owns Enter/Tab/arrows/Esc while open.
+    if (slash && slash.index === index) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setSlash(null)
+        return
+      }
+      const items = filteredSlash(slash.token)
+      if (items.length === 0) {
+        // No match: dismiss and fall through to normal editing keys.
+        setSlash(null)
+      } else if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setSlashSel((sel) => (sel + 1) % items.length)
+        return
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setSlashSel((sel) => (sel - 1 + items.length) % items.length)
+        return
+      } else if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        applySlash(index, items[slashSel % items.length])
+        return
+      }
+    }
 
     // Plain Enter stays inside the block (default newline). Shift+Enter
     // splits the block at the caret into a new block below.
@@ -368,18 +606,49 @@ function BlockEditor({
               </span>
             )}
             {index === active ? (
-              <textarea
-                key={`edit-${index}`}
-                data-block={index}
-                className="block__input"
-                value={block}
-                rows={1}
-                spellCheck={false}
-                placeholder={index === 0 ? placeholder : ''}
-                onChange={(event) => setBlockText(index, event.target.value)}
-                onKeyDown={(event) => onKeyDown(event, index)}
-                onBlur={() => setActive((current) => (current === index ? null : current))}
-              />
+              <>
+                <textarea
+                  key={`edit-${index}`}
+                  data-block={index}
+                  className="block__input"
+                  value={block}
+                  rows={1}
+                  spellCheck={false}
+                  placeholder={index === 0 ? placeholder : ''}
+                  onChange={(event) => {
+                    setBlockText(index, event.target.value)
+                    refreshSlash(index, event.target.value, event.target.selectionStart)
+                  }}
+                  onClick={(event) =>
+                    refreshSlash(
+                      index,
+                      event.currentTarget.value,
+                      event.currentTarget.selectionStart
+                    )
+                  }
+                  onKeyDown={(event) => {
+                    onKeyDown(event, index)
+                    if (event.key !== 'Enter' && event.key !== 'Tab' && event.key !== 'Escape') {
+                      // Caret may have moved (arrows, typing filtered above).
+                      const el = event.currentTarget
+                      window.requestAnimationFrame(() => {
+                        if (document.activeElement === el) {
+                          refreshSlash(index, el.value, el.selectionStart)
+                        }
+                      })
+                    }
+                  }}
+                  onBlur={() => setActive((current) => (current === index ? null : current))}
+                />
+                {slash !== null && slash.index === index && (
+                  <SlashMenu
+                    token={slash.token}
+                    selected={slashSel}
+                    onHover={setSlashSel}
+                    onPick={(cmd) => applySlash(index, cmd)}
+                  />
+                )}
+              </>
             ) : (
               <div
                 key={`view-${index}`}

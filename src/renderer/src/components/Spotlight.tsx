@@ -17,16 +17,20 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-/** Case-insensitive query highlight for a text-only snippet. */
+/**
+ * Case-insensitive query highlight for a text-only snippet. Wrapped in a
+ * single span: callers render inside flex rows, and a bare fragment would
+ * turn every text part + mark into its own flex item with gaps between them.
+ */
 function Highlight({ text, query }: { text: string; query: string }): React.JSX.Element {
-  if (!query) return <>{text}</>
+  if (!query) return <span className="spotlight__hit">{text}</span>
   const parts = text.split(new RegExp(`(${escapeRegExp(query)})`, 'gi'))
   return (
-    <>
+    <span className="spotlight__hit">
       {parts.map((part, index) =>
         part.toLowerCase() === query.toLowerCase() ? <mark key={index}>{part}</mark> : part
       )}
-    </>
+    </span>
   )
 }
 

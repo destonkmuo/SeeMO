@@ -385,6 +385,9 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
         <span>
           <kbd>Ctrl</kbd>+<kbd>F</kbd> find
         </span>
+        <span>
+          <kbd>/</kbd> insert
+        </span>
       </footer>
     </main>
   )
