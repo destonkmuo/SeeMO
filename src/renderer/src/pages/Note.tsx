@@ -55,10 +55,13 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // A new note starts with a closed find bar.
-  useEffect(() => {
+  // A new note starts with a closed find bar (render-time adjustment for
+  // prop change; no effect needed).
+  const [findNoteId, setFindNoteId] = useState(noteId)
+  if (findNoteId !== noteId) {
+    setFindNoteId(noteId)
     setFindOpen(false)
-  }, [noteId])
+  }
 
   // Drop results surface in the UI (success and failure alike) so a silent
   // drop is impossible: if nothing lands, the banner says why.

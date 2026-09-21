@@ -1209,6 +1209,11 @@ button.sidebar__today-row:hover {
   gap: 6px;
 }
 
+/* Breathing room between the "Trash · N" title and its dropdown arrow. */
+.sidebar__trash-head .sidebar__chevron {
+  margin-left: 8px;
+}
+
 .sidebar__trash-row {
   display: flex;
   align-items: center;
@@ -3365,6 +3370,187 @@ button.cal-week__day:hover {
   gap: 20px;
 }
 
+.task__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Daily routines: one named checklist with expandable mini-steps. */
+.routine {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 6px 8px;
+}
+
+.routine + .routine {
+  margin-top: 8px;
+}
+
+.routine__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.routine__chevron {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ev-c-text-3);
+  cursor: pointer;
+}
+
+.routine__chevron:hover {
+  background: var(--hover-strong);
+  color: var(--ev-c-text-1);
+}
+
+.routine__chevron svg {
+  transition: transform 150ms ease;
+}
+
+.routine__chevron.is-open svg {
+  transform: rotate(180deg);
+}
+
+.routine__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: none;
+  background: transparent;
+  color: var(--ev-c-text-1);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  text-align: left;
+  padding: 4px 2px;
+  cursor: pointer;
+}
+
+.routine.is-done .routine__title {
+  color: var(--ev-c-text-3);
+  text-decoration: line-through;
+}
+
+.routine__rename {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  outline: none;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--ev-c-text-1);
+  font: inherit;
+  font-size: 14px;
+  padding: 3px 8px;
+  user-select: text;
+}
+
+.routine__progress {
+  flex: none;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ev-c-text-3);
+}
+
+.routine__bar {
+  height: 4px;
+  margin: 6px 2px 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.routine__bar span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 200ms ease;
+}
+
+.routine__steps {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.routine-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 2px 3px 30px;
+  border-radius: 6px;
+}
+
+.routine-step:hover {
+  background: var(--hover);
+}
+
+.routine-step__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ev-c-text-1);
+  font: inherit;
+  font-size: 13.5px;
+  padding: 2px 0;
+  user-select: text;
+}
+
+.routine-step.is-done .routine-step__input {
+  color: var(--ev-c-text-3);
+  text-decoration: line-through;
+}
+
+.routine-step__remove {
+  opacity: 0;
+}
+
+.routine-step:hover .routine-step__remove,
+.routine-step__remove:focus-visible {
+  opacity: 1;
+}
+
+.routine__add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px 2px 30px;
+  color: var(--ev-c-text-3);
+}
+
+.routine__add-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ev-c-text-1);
+  font: inherit;
+  font-size: 13.5px;
+  padding: 2px 0;
+  user-select: text;
+}
+
+.routine__add-input::placeholder {
+  color: var(--ev-c-text-3);
+}
+
 .task__title {
   font-size: 32px;
   font-weight: 700;
@@ -3842,11 +4028,6 @@ button.cal-week__day:hover {
 .miniapp__delete:hover {
   background: rgba(255, 80, 80, 0.14);
   color: var(--danger);
-}
-
-/* Full-width shared row (alarm sound picker). */
-.miniapp--wide {
-  margin-top: 4px;
 }
 
 /* Countdown / Pomodoro type switch on timer cards. */

@@ -1,6 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import PlannerDialog, { type PlannerDialogTarget } from '../components/PlannerDialog'
-import { CalendarIcon, PlusIcon, TrashIcon } from '../components/icons'
+import {
+  CalendarIcon,
+  ChevronDownIcon,
+  PencilIcon,
+  PlusIcon,
+  RestoreIcon,
+  TrashIcon,
+  XIcon
+} from '../components/icons'
 import { useAppStore } from '../store/appStore'
 import {
   addDays,
@@ -8,6 +16,8 @@ import {
   formatTime,
   isTaskDone,
   todayISO,
+  type RoutineItem,
+  type RoutineStep,
   type TaskItem
 } from '../planner'
 
@@ -74,6 +84,206 @@ function TaskRow({
   )
 }
 
+function StepRow({ routineId, step }: { routineId: string; step: RoutineStep }): React.JSX.Element {
+  const toggleRoutineStep = useAppStore((state) => state.toggleRoutineStep)
+  const renameRoutineStep = useAppStore((state) => state.renameRoutineStep)
+  const removeRoutineStep = useAppStore((state) => state.removeRoutineStep)
+  // Local draft commits on blur/Enter; step titles only change here, so no
+  // sync effect is needed (avoids a set-state-in-effect cascade).
+  const [draft, setDraft] = useState(step.title)
+
+  const commit = (): void => {
+    if (draft.trim() && draft !== step.title) renameRoutineStep(routineId, step.id, draft)
+    else setDraft(step.title)
+  }
+
+  return (
+    <div className={`routine-step${step.done ? ' is-done' : ''}`}>
+      <button
+        type="button"
+        className="task-check"
+        role="checkbox"
+        aria-checked={step.done}
+        aria-label={step.done ? `Reopen ${step.title}` : `Complete ${step.title}`}
+        onClick={() => toggleRoutineStep(routineId, step.id)}
+      >
+        <span className="task-check__box" />
+      </button>
+      <input
+        className="routine-step__input"
+        value={draft}
+        spellCheck={false}
+        aria-label="Step title"
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+          if (event.key === 'Escape') setDraft(step.title)
+        }}
+      />
+      <button
+        type="button"
+        className="icon-btn icon-btn--danger routine-step__remove"
+        title={`Remove ${step.title || 'step'}`}
+        aria-label="Remove step"
+        onClick={() => removeRoutineStep(routineId, step.id)}
+      >
+        <XIcon size={13} />
+      </button>
+    </div>
+  )
+}
+
+function RoutineRow({
+  routine,
+  expanded,
+  onToggleExpand
+}: {
+  routine: RoutineItem
+  expanded: boolean
+  onToggleExpand: () => void
+}): React.JSX.Element {
+  const renameRoutine = useAppStore((state) => state.renameRoutine)
+  const deleteRoutine = useAppStore((state) => state.deleteRoutine)
+  const addRoutineStep = useAppStore((state) => state.addRoutineStep)
+  const toggleRoutineAll = useAppStore((state) => state.toggleRoutineAll)
+  const resetRoutine = useAppStore((state) => state.resetRoutine)
+  const [renaming, setRenaming] = useState(false)
+  const [renameDraft, setRenameDraft] = useState(routine.title)
+  const [stepDraft, setStepDraft] = useState('')
+
+  const total = routine.steps.length
+  const done = routine.steps.filter((step) => step.done).length
+  const allDone = total > 0 && done === total
+
+  const commitRename = (): void => {
+    setRenaming(false)
+    if (renameDraft.trim() && renameDraft !== routine.title) {
+      renameRoutine(routine.id, renameDraft)
+    }
+  }
+
+  const commitStep = (): void => {
+    if (!stepDraft.trim()) return
+    addRoutineStep(routine.id, stepDraft)
+    setStepDraft('')
+  }
+
+  return (
+    <div className={`routine${allDone ? ' is-done' : ''}`}>
+      <div className="routine__head">
+        <button
+          type="button"
+          className={`routine__chevron${expanded ? ' is-open' : ''}`}
+          aria-expanded={expanded}
+          aria-label={expanded ? `Collapse ${routine.title}` : `Expand ${routine.title}`}
+          onClick={onToggleExpand}
+        >
+          <ChevronDownIcon size={14} />
+        </button>
+        <button
+          type="button"
+          className="task-check"
+          role="checkbox"
+          aria-checked={allDone}
+          aria-label={allDone ? `Reopen ${routine.title}` : `Complete ${routine.title}`}
+          title={allDone ? 'Mark all steps open' : 'Mark all steps done'}
+          onClick={() => toggleRoutineAll(routine.id)}
+        >
+          <span className="task-check__box" />
+        </button>
+        {renaming ? (
+          <input
+            className="routine__rename"
+            autoFocus
+            value={renameDraft}
+            spellCheck={false}
+            aria-label="Routine name"
+            onChange={(event) => setRenameDraft(event.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commitRename()
+              if (event.key === 'Escape') {
+                setRenameDraft(routine.title)
+                setRenaming(false)
+              }
+            }}
+          />
+        ) : (
+          <button type="button" className="routine__title" onClick={onToggleExpand}>
+            {routine.title.trim() || 'Untitled routine'}
+          </button>
+        )}
+        <span className="routine__progress" title={`${done} of ${total} steps done`}>
+          {total === 0 ? 'no steps' : `${done}/${total}`}
+        </span>
+        <button
+          type="button"
+          className="icon-btn"
+          title={`Rename ${routine.title || 'routine'}`}
+          aria-label="Rename routine"
+          onClick={() => {
+            setRenameDraft(routine.title)
+            setRenaming(true)
+          }}
+        >
+          <PencilIcon size={14} />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          title="Reset steps for today"
+          aria-label="Reset routine steps"
+          onClick={() => resetRoutine(routine.id)}
+        >
+          <RestoreIcon size={14} />
+        </button>
+        <button
+          type="button"
+          className="icon-btn icon-btn--danger"
+          title="Delete routine"
+          aria-label={`Delete ${routine.title || 'routine'}`}
+          onClick={() => deleteRoutine(routine.id)}
+        >
+          <TrashIcon size={14} />
+        </button>
+      </div>
+      {total > 0 && (
+        <div
+          className="routine__bar"
+          role="progressbar"
+          aria-valuenow={done}
+          aria-valuemin={0}
+          aria-valuemax={total}
+        >
+          <span style={{ width: `${(done / total) * 100}%` }} />
+        </div>
+      )}
+      {expanded && (
+        <div className="routine__steps">
+          {routine.steps.map((step) => (
+            <StepRow key={step.id} routineId={routine.id} step={step} />
+          ))}
+          <div className="routine__add">
+            <PlusIcon size={13} />
+            <input
+              className="routine__add-input"
+              value={stepDraft}
+              spellCheck={false}
+              placeholder="Add a step…"
+              aria-label="New step title"
+              onChange={(event) => setStepDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') commitStep()
+              }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function dayLabel(due: string, today: string, tomorrow: string): string {
   if (due === today) return 'Today'
   if (due === tomorrow) return 'Tomorrow'
@@ -82,9 +292,18 @@ function dayLabel(due: string, today: string, tomorrow: string): string {
 
 function Tasks(): React.JSX.Element {
   const tasks = useAppStore((state) => state.tasks)
+  const routines = useAppStore((state) => state.routines)
   const plannerReady = useAppStore((state) => state.plannerReady)
   const plannerError = useAppStore((state) => state.plannerError)
+  const addRoutine = useAppStore((state) => state.addRoutine)
+  const ensureRoutinesToday = useAppStore((state) => state.ensureRoutinesToday)
   const [dialog, setDialog] = useState<PlannerDialogTarget | null>(null)
+  const [expandedRoutines, setExpandedRoutines] = useState<Set<string>>(new Set())
+
+  // Fresh day, fresh checks — even if the app stayed open overnight.
+  useEffect(() => {
+    ensureRoutinesToday()
+  }, [ensureRoutinesToday])
 
   const today = todayISO()
   const tomorrow = addDays(today, 1)
@@ -120,14 +339,27 @@ function Tasks(): React.JSX.Element {
                 : `${open.length} open · tasks created on the calendar land here`}
             </p>
           </div>
-          <button
-            type="button"
-            className="btn btn--primary"
-            onClick={() => setDialog({ mode: 'create', kind: 'task', date: today })}
-          >
-            <PlusIcon size={15} />
-            New task
-          </button>
+          <div className="task__actions">
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => {
+                const id = addRoutine('Untitled routine')
+                setExpandedRoutines((prev) => new Set(prev).add(id))
+              }}
+            >
+              <PlusIcon size={15} />
+              New routine
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => setDialog({ mode: 'create', kind: 'task', date: today })}
+            >
+              <PlusIcon size={15} />
+              New task
+            </button>
+          </div>
         </header>
 
         {plannerError && (
@@ -139,6 +371,28 @@ function Tasks(): React.JSX.Element {
           <p className="cal__empty">Loading tasks…</p>
         ) : (
           <>
+            {routines.length > 0 && (
+              <section className="task-group task-group--routines" aria-label="Daily routines">
+                <h2 className="task-group__title">Routines</h2>
+                <p className="task-group__hint">Daily checklists — steps reset every morning.</p>
+                {routines.map((routine) => (
+                  <RoutineRow
+                    key={routine.id}
+                    routine={routine}
+                    expanded={expandedRoutines.has(routine.id)}
+                    onToggleExpand={() =>
+                      setExpandedRoutines((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(routine.id)) next.delete(routine.id)
+                        else next.add(routine.id)
+                        return next
+                      })
+                    }
+                  />
+                ))}
+              </section>
+            )}
+
             {(overdue.length > 0 || dayGroups.length > 0) && (
               <section className="task-timeline" aria-label="Task timeline">
                 {overdue.length > 0 && (

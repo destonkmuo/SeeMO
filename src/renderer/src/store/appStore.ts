@@ -8,17 +8,20 @@ import {
   CALENDARS_FILE,
   CALENDAR_COLORS,
   CALENDAR_FILE,
+  ROUTINES_FILE,
   TASKS_FILE,
   TODO_FILE,
   calendarItemFromDraft,
   draftFromItem,
   parseCalendarData,
+  parseRoutines,
   parseSubscriptions,
   parseTaskItems,
   todayISO,
   taskItemFromDraft,
   type CalendarDraft,
   type CalendarItem,
+  type RoutineItem,
   type CalendarSubscription,
   type TaskDraft,
   type TaskItem
@@ -260,6 +263,7 @@ interface AppState {
   clearChat: () => void
   calendarItems: CalendarItem[]
   tasks: TaskItem[]
+  routines: RoutineItem[]
   subscriptions: CalendarSubscription[]
   localCalendarColor: string
   plannerReady: boolean
@@ -272,6 +276,16 @@ interface AppState {
   updateTask: (id: string, patch: Partial<TaskDraft> & { done?: boolean }) => void
   toggleTask: (id: string) => void
   deleteTask: (id: string) => void
+  addRoutine: (title?: string) => string
+  renameRoutine: (id: string, title: string) => void
+  deleteRoutine: (id: string) => void
+  addRoutineStep: (routineId: string, title?: string) => string | null
+  renameRoutineStep: (routineId: string, stepId: string, title: string) => void
+  removeRoutineStep: (routineId: string, stepId: string) => void
+  toggleRoutineStep: (routineId: string, stepId: string) => void
+  toggleRoutineAll: (routineId: string) => void
+  resetRoutine: (routineId: string) => void
+  ensureRoutinesToday: () => void
   setLocalCalendarColor: (color: string) => void
   addSubscription: (input: { name: string; url: string; color: string }) => Promise<string>
   updateSubscription: (
@@ -607,6 +621,36 @@ function saveTaskFile(tasks: TaskItem[], set: PersistSet): void {
   })
 }
 
+function saveRoutineFile(routines: RoutineItem[], set: PersistSet): void {
+  void window.api.vault.writeJson(ROUTINES_FILE, routines).catch((error) => {
+    console.error('[planner] failed to save routines.json', error)
+    set({ plannerError: 'Could not save routines.json.' })
+  })
+}
+
+/**
+ * Clear step checks when the day has rolled over since `lastReset`.
+ * Returns the normalized list plus whether anything changed (caller saves).
+ */
+function normalizeRoutineDay(
+  routines: RoutineItem[],
+  today: string,
+  now: number
+): { routines: RoutineItem[]; changed: boolean } {
+  let changed = false
+  const next = routines.map((routine) => {
+    if (routine.lastReset === today) return routine
+    changed = true
+    return {
+      ...routine,
+      steps: routine.steps.map((step) => (step.done ? { ...step, done: false } : step)),
+      lastReset: today,
+      updatedAt: now
+    }
+  })
+  return { routines: next, changed }
+}
+
 function saveCalendarsFile(subscriptions: CalendarSubscription[], set: PersistSet): void {
   void window.api.vault.writeJson(CALENDARS_FILE, subscriptions).catch((error) => {
     console.error('[planner] failed to save calendars.json', error)
@@ -641,6 +685,7 @@ export const useAppStore = create<AppState>()(
       messages: [],
       calendarItems: [],
       tasks: [],
+      routines: [],
       subscriptions: [],
       localCalendarColor: CALENDAR_COLORS[0],
       plannerReady: false,
@@ -1539,11 +1584,12 @@ export const useAppStore = create<AppState>()(
       clearChat: () => set({ messages: [] }),
       loadPlanner: async () => {
         try {
-          const [calendarRaw, tasksRaw, legacyRaw, calendarsRaw] = await Promise.all([
+          const [calendarRaw, tasksRaw, legacyRaw, calendarsRaw, routinesRaw] = await Promise.all([
             window.api.vault.readJson(CALENDAR_FILE),
             window.api.vault.readJson(TASKS_FILE),
             window.api.vault.readJson(TODO_FILE),
-            window.api.vault.readJson(CALENDARS_FILE)
+            window.api.vault.readJson(CALENDARS_FILE),
+            window.api.vault.readJson(ROUTINES_FILE)
           ])
           const { events, migratedTasks } = parseCalendarData(calendarRaw)
           const byId = new Map(parseTaskItems(tasksRaw).map((task) => [task.id, task]))
@@ -1564,9 +1610,15 @@ export const useAppStore = create<AppState>()(
           }
           const tasks = [...byId.values()]
           const subscriptions = parseSubscriptions(calendarsRaw)
+          const normalized = normalizeRoutineDay(parseRoutines(routinesRaw), todayISO(), Date.now())
+          if (normalized.changed) {
+            // Day rolled over while away: persist the fresh checks.
+            saveRoutineFile(normalized.routines, set)
+          }
           set({
             calendarItems: events,
             tasks,
+            routines: normalized.routines,
             subscriptions,
             plannerReady: true,
             plannerError: null
@@ -1652,6 +1704,130 @@ export const useAppStore = create<AppState>()(
         const tasks = get().tasks.filter((item) => item.id !== id)
         set({ tasks, plannerError: null })
         saveTaskFile(tasks, set)
+      },
+      addRoutine: (title) => {
+        const now = Date.now()
+        const routine: RoutineItem = {
+          id: uid(),
+          title: (title ?? '').trim(),
+          notes: '',
+          steps: [],
+          lastReset: todayISO(),
+          createdAt: now,
+          updatedAt: now
+        }
+        const routines = [routine, ...get().routines]
+        set({ routines, plannerError: null })
+        saveRoutineFile(routines, set)
+        return routine.id
+      },
+      renameRoutine: (id, title) => {
+        const routines = get().routines.map((item) =>
+          item.id === id ? { ...item, title: title.trim(), updatedAt: Date.now() } : item
+        )
+        set({ routines, plannerError: null })
+        saveRoutineFile(routines, set)
+      },
+      deleteRoutine: (id) => {
+        const routines = get().routines.filter((item) => item.id !== id)
+        set({ routines, plannerError: null })
+        saveRoutineFile(routines, set)
+      },
+      addRoutineStep: (routineId, title) => {
+        const trimmed = (title ?? '').trim()
+        if (!trimmed) return null
+        const now = Date.now()
+        const step = { id: uid(), title: trimmed, done: false }
+        let created: string | null = null
+        const routines = get().routines.map((item) => {
+          if (item.id !== routineId) return item
+          created = step.id
+          return { ...item, steps: [...item.steps, step], updatedAt: now }
+        })
+        if (!created) return null
+        set({ routines, plannerError: null })
+        saveRoutineFile(routines, set)
+        return created
+      },
+      renameRoutineStep: (routineId, stepId, title) => {
+        const trimmed = title.trim()
+        if (!trimmed) return
+        const routines = get().routines.map((item) =>
+          item.id === routineId
+            ? {
+                ...item,
+                steps: item.steps.map((step) =>
+                  step.id === stepId ? { ...step, title: trimmed } : step
+                ),
+                updatedAt: Date.now()
+              }
+            : item
+        )
+        set({ routines, plannerError: null })
+        saveRoutineFile(routines, set)
+      },
+      removeRoutineStep: (routineId, stepId) => {
+        const routines = get().routines.map((item) =>
+          item.id === routineId
+            ? {
+                ...item,
+                steps: item.steps.filter((step) => step.id !== stepId),
+                updatedAt: Date.now()
+              }
+            : item
+        )
+        set({ routines, plannerError: null })
+        saveRoutineFile(routines, set)
+      },
+      toggleRoutineStep: (routineId, stepId) => {
+        const routines = get().routines.map((item) =>
+          item.id === routineId
+            ? {
+                ...item,
+                steps: item.steps.map((step) =>
+                  step.id === stepId ? { ...step, done: !step.done } : step
+                ),
+                updatedAt: Date.now()
+              }
+            : item
+        )
+        set({ routines, plannerError: null })
+        saveRoutineFile(routines, set)
+      },
+      toggleRoutineAll: (routineId) => {
+        const routines = get().routines.map((item) => {
+          if (item.id !== routineId) return item
+          const allDone = item.steps.length > 0 && item.steps.every((step) => step.done)
+          return {
+            ...item,
+            steps: item.steps.map((step) => ({ ...step, done: !allDone })),
+            updatedAt: Date.now()
+          }
+        })
+        set({ routines, plannerError: null })
+        saveRoutineFile(routines, set)
+      },
+      resetRoutine: (routineId) => {
+        const now = Date.now()
+        const routines = get().routines.map((item) =>
+          item.id === routineId
+            ? {
+                ...item,
+                steps: item.steps.map((step) => (step.done ? { ...step, done: false } : step)),
+                lastReset: todayISO(),
+                updatedAt: now
+              }
+            : item
+        )
+        set({ routines, plannerError: null })
+        saveRoutineFile(routines, set)
+      },
+      ensureRoutinesToday: () => {
+        const now = Date.now()
+        const { routines, changed } = normalizeRoutineDay(get().routines, todayISO(), now)
+        if (!changed) return
+        set({ routines, plannerError: null })
+        saveRoutineFile(routines, set)
       },
       setLocalCalendarColor: (localCalendarColor) => set({ localCalendarColor }),
       addSubscription: async ({ name, url, color }) => {

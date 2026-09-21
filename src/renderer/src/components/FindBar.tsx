@@ -54,8 +54,7 @@ function FindBar({
   onClose: () => void
 }): React.JSX.Element {
   const [query, setQuery] = useState(() => window.getSelection()?.toString().slice(0, 100) ?? '')
-  const [index, setIndex] = useState(0)
-  const [count, setCount] = useState(0)
+  const [match, setMatch] = useState({ count: 0, index: 0 })
   const inputRef = useRef<HTMLInputElement>(null)
   const rangesRef = useRef<Range[]>([])
 
@@ -73,7 +72,9 @@ function FindBar({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  // Rematch on query or content change.
+  // Rematch on query or content change. setMatch mirrors the external
+  // Highlight registry sync below (one extra render per change, no cascade).
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     const clear = (): void => {
       if (!highlightsSupported()) return
@@ -83,32 +84,34 @@ function FindBar({
     const root = scope.current?.querySelector('.blocks')
     if (!root || !query) {
       rangesRef.current = []
-      setCount(0)
-      setIndex(0)
+      setMatch({ count: 0, index: 0 })
       clear()
       return
     }
     const ranges = collectRanges(root, query)
     rangesRef.current = ranges
-    setCount(ranges.length)
-    setIndex((prev) => (ranges.length === 0 ? 0 : Math.min(prev, ranges.length - 1)))
+    setMatch((prev) => ({
+      count: ranges.length,
+      index: ranges.length === 0 ? 0 : Math.min(prev.index, ranges.length - 1)
+    }))
     if (highlightsSupported()) {
       CSS.highlights.set('note-find', new Highlight(...ranges))
     }
     return clear
   }, [query, content, scope])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Paint + reveal the current match.
   useEffect(() => {
     const ranges = rangesRef.current
     if (ranges.length === 0) return
-    const safe = ((index % ranges.length) + ranges.length) % ranges.length
+    const safe = ((match.index % ranges.length) + ranges.length) % ranges.length
     const current = ranges[safe]
     if (highlightsSupported()) {
       CSS.highlights.set('note-find-current', new Highlight(current))
     }
     current.startContainer.parentElement?.scrollIntoView({ block: 'center' })
-  }, [index, count])
+  }, [match])
 
   // Highlights die with the bar.
   useEffect(
@@ -121,8 +124,9 @@ function FindBar({
   )
 
   const step = (delta: number): void => {
-    if (count === 0) return
-    setIndex((prev) => (prev + delta + count) % count)
+    if (match.count === 0) return
+    const count = match.count
+    setMatch((prev) => ({ count: prev.count, index: (prev.index + delta + count) % count }))
   }
 
   return (
@@ -143,7 +147,11 @@ function FindBar({
         }}
       />
       <span className="findbar__count" aria-live="polite">
-        {query ? (count === 0 ? '0 / 0' : `${(index % count) + 1} / ${count}`) : ''}
+        {query
+          ? match.count === 0
+            ? '0 / 0'
+            : `${(match.index % match.count) + 1} / ${match.count}`
+          : ''}
       </span>
       <button
         type="button"

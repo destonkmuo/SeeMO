@@ -73,7 +73,13 @@ function ensureMarkdown(name: string): string {
  * (legacy, migration reads only) / CALENDARS_FILE in
  * src/renderer/src/planner.ts — add new data files in both places.
  */
-const DATA_FILES = ['calendar.json', 'tasks.json', 'todo.json', 'calendars.json'] as const
+const DATA_FILES = [
+  'calendar.json',
+  'tasks.json',
+  'todo.json',
+  'calendars.json',
+  'routines.json'
+] as const
 
 function resolveDataFile(root: string, name: string): string {
   if (!DATA_FILES.includes(name as (typeof DATA_FILES)[number])) {

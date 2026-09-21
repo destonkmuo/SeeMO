@@ -110,6 +110,7 @@ export const TASK_COLOR = '#b284ff'
 
 export const CALENDAR_FILE = 'calendar.json'
 export const TASKS_FILE = 'tasks.json'
+export const ROUTINES_FILE = 'routines.json'
 /** Pre-rename task store; read once for migration, then retired. */
 export const TODO_FILE = 'todo.json'
 export const CALENDARS_FILE = 'calendars.json'
@@ -425,6 +426,69 @@ export function parseTaskItems(data: unknown): TaskItem[] {
   const items: TaskItem[] = []
   for (const value of data) {
     const item = toTaskItem(value, now)
+    if (item) items.push(item)
+  }
+  return items
+}
+
+/** One mini-step inside a routine. */
+export interface RoutineStep {
+  id: string
+  title: string
+  done: boolean
+}
+
+/**
+ * A named daily routine: an ordered list of mini-steps that resets every
+ * day (`lastReset` tracks the last `YYYY-MM-DD` the steps were cleared).
+ */
+export interface RoutineItem {
+  id: string
+  title: string
+  notes: string
+  steps: RoutineStep[]
+  lastReset: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+export function toRoutineStep(value: unknown): RoutineStep | null {
+  if (!isRecord(value)) return null
+  const id = asId(value.id)
+  if (!id) return null
+  return { id, title: asString(value.title), done: value.done === true }
+}
+
+export function toRoutineItem(value: unknown, now: number): RoutineItem | null {
+  if (!isRecord(value)) return null
+  const id = asId(value.id)
+  if (!id) return null
+  const steps: RoutineStep[] = []
+  if (Array.isArray(value.steps)) {
+    for (const raw of value.steps) {
+      const step = toRoutineStep(raw)
+      if (step) steps.push(step)
+    }
+  }
+  const lastReset =
+    typeof value.lastReset === 'string' && DATE_RE.test(value.lastReset) ? value.lastReset : null
+  return {
+    id,
+    title: asString(value.title),
+    notes: asString(value.notes),
+    steps,
+    lastReset,
+    createdAt: asNumber(value.createdAt, now),
+    updatedAt: asNumber(value.updatedAt, now)
+  }
+}
+
+export function parseRoutines(data: unknown): RoutineItem[] {
+  if (!Array.isArray(data)) return []
+  const now = Date.now()
+  const items: RoutineItem[] = []
+  for (const value of data) {
+    const item = toRoutineItem(value, now)
     if (item) items.push(item)
   }
   return items

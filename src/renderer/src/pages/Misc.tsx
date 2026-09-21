@@ -42,7 +42,7 @@ function formatDurationDraft(totalSec: number): string {
   return `${minutes}:${String(seconds).padStart(2, '0')}`
 }
 
-function SoundSelect({
+function CardSound({
   value,
   onChange,
   label
@@ -52,20 +52,76 @@ function SoundSelect({
   label: string
 }): React.JSX.Element {
   const customAlarm = useAppStore((state) => state.customAlarm)
+  const setCustomAlarm = useAppStore((state) => state.setCustomAlarm)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+
+  const uploadCustom = async (): Promise<void> => {
+    setUploading(true)
+    setUploadError(null)
+    try {
+      const result = await window.api.importAlarmSound()
+      if (!result) return // user canceled the picker
+      setCustomAlarm({ name: result.name, url: result.url })
+      onChange('custom')
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : 'Could not import sound.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const onSelect = (id: string): void => {
+    if (id === 'custom' && !customAlarm) {
+      void uploadCustom()
+      return
+    }
+    onChange(id)
+  }
+
   return (
-    <select
-      className="dlg__input"
-      aria-label={label}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    >
-      {BUILT_IN_SOUNDS.map((sound) => (
-        <option key={sound.id} value={sound.id}>
-          {sound.label}
-        </option>
-      ))}
-      {customAlarm && <option value="custom">Custom: {customAlarm.name}</option>}
-    </select>
+    <>
+      <div className="miniapp__row">
+        <select
+          className="dlg__input"
+          aria-label={label}
+          value={value}
+          onChange={(event) => onSelect(event.target.value)}
+        >
+          {BUILT_IN_SOUNDS.map((sound) => (
+            <option key={sound.id} value={sound.id}>
+              {sound.label}
+            </option>
+          ))}
+          <option value="custom">
+            {customAlarm ? `Custom: ${customAlarm.name}` : 'Custom file…'}
+          </option>
+        </select>
+        <button
+          type="button"
+          className="btn btn--ghost"
+          title="Play a sample"
+          onClick={() => previewSound(resolveSoundUrl(value, customAlarm?.url ?? null))}
+        >
+          Preview
+        </button>
+        {value === 'custom' && customAlarm && (
+          <button
+            type="button"
+            className="btn btn--ghost"
+            disabled={uploading}
+            onClick={() => void uploadCustom()}
+          >
+            {uploading ? 'Importing…' : 'Change file…'}
+          </button>
+        )}
+      </div>
+      {uploadError && (
+        <p className="miniapp__hint miniapp__error" role="alert">
+          {uploadError}
+        </p>
+      )}
+    </>
   )
 }
 
@@ -89,89 +145,10 @@ function DeleteButton({
   )
 }
 
-function SoundSettings(): React.JSX.Element {
-  const alarmSoundId = useAppStore((state) => state.alarmSoundId)
-  const setAlarmSoundId = useAppStore((state) => state.setAlarmSoundId)
-  const customAlarm = useAppStore((state) => state.customAlarm)
-  const setCustomAlarm = useAppStore((state) => state.setCustomAlarm)
-  const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
-
-  const soundUrl = resolveSoundUrl(alarmSoundId, customAlarm?.url ?? null)
-
-  const uploadCustom = async (): Promise<void> => {
-    setUploading(true)
-    setUploadError(null)
-    try {
-      const result = await window.api.importAlarmSound()
-      if (!result) return // user canceled the picker
-      setCustomAlarm({ name: result.name, url: result.url })
-      setAlarmSoundId('custom')
-    } catch (error) {
-      setUploadError(error instanceof Error ? error.message : 'Could not import sound.')
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  const onSelectSound = (id: string): void => {
-    if (id === 'custom' && !customAlarm) {
-      void uploadCustom()
-      return
-    }
-    setAlarmSoundId(id)
-  }
-
-  return (
-    <div className="miniapp miniapp--wide" aria-label="Alarm sound">
-      <div className="miniapp__row">
-        <span className="miniapp__hint">Default sound for new alarms &amp; timers:</span>
-        <select
-          className="dlg__input"
-          aria-label="Alarm sound"
-          value={alarmSoundId}
-          onChange={(event) => onSelectSound(event.target.value)}
-        >
-          {BUILT_IN_SOUNDS.map((sound) => (
-            <option key={sound.id} value={sound.id}>
-              {sound.label}
-            </option>
-          ))}
-          <option value="custom">
-            {customAlarm ? `Custom: ${customAlarm.name}` : 'Custom file…'}
-          </option>
-        </select>
-        <button
-          type="button"
-          className="btn btn--ghost"
-          title="Play a sample"
-          onClick={() => previewSound(soundUrl)}
-        >
-          Preview
-        </button>
-        {alarmSoundId === 'custom' && (
-          <button
-            type="button"
-            className="btn btn--ghost"
-            disabled={uploading}
-            onClick={() => void uploadCustom()}
-          >
-            {uploading ? 'Importing…' : customAlarm ? 'Change file…' : 'Choose audio file…'}
-          </button>
-        )}
-      </div>
-      {uploadError && (
-        <p className="miniapp__hint miniapp__error" role="alert">
-          {uploadError}
-        </p>
-      )}
-    </div>
-  )
-}
-
 function AlarmCard({ alarm }: { alarm: AlarmItem }): React.JSX.Element {
   const updateAlarm = useAppStore((state) => state.updateAlarm)
   const removeAlarm = useAppStore((state) => state.removeAlarm)
+  const setAlarmSoundId = useAppStore((state) => state.setAlarmSoundId)
 
   const stop = (): void => {
     updateAlarm(alarm.id, {
@@ -233,13 +210,14 @@ function AlarmCard({ alarm }: { alarm: AlarmItem }): React.JSX.Element {
           onChange={(event) => updateAlarm(alarm.id, { time: event.target.value || null })}
         />
       </div>
-      <div className="miniapp__row">
-        <SoundSelect
-          label={`${alarm.label} sound`}
-          value={alarm.soundId}
-          onChange={(soundId) => updateAlarm(alarm.id, { soundId })}
-        />
-      </div>
+      <CardSound
+        label={`${alarm.label} sound`}
+        value={alarm.soundId}
+        onChange={(soundId) => {
+          updateAlarm(alarm.id, { soundId })
+          setAlarmSoundId(soundId)
+        }}
+      />
       <label className="settings__check">
         <input
           type="checkbox"
@@ -279,6 +257,7 @@ const POMODORO_LABEL: Record<Exclude<PomodoroPhase, 'idle'>, string> = {
 function TimerCard({ timer, now }: { timer: TimerItem; now: number }): React.JSX.Element {
   const updateTimer = useAppStore((state) => state.updateTimer)
   const removeTimer = useAppStore((state) => state.removeTimer)
+  const setAlarmSoundId = useAppStore((state) => state.setAlarmSoundId)
   const [draft, setDraft] = useState(() => formatDurationDraft(timer.totalSec))
   const isPomo = timer.kind === 'pomodoro'
 
@@ -609,13 +588,14 @@ function TimerCard({ timer, now }: { timer: TimerItem; now: number }): React.JSX
           </label>
         </>
       )}
-      <div className="miniapp__row">
-        <SoundSelect
-          label={`${timer.label} sound`}
-          value={timer.soundId}
-          onChange={(soundId) => updateTimer(timer.id, { soundId })}
-        />
-      </div>
+      <CardSound
+        label={`${timer.label} sound`}
+        value={timer.soundId}
+        onChange={(soundId) => {
+          updateTimer(timer.id, { soundId })
+          setAlarmSoundId(soundId)
+        }}
+      />
     </section>
   )
 }
@@ -727,7 +707,6 @@ function Misc(): React.JSX.Element {
             <p className="misc__subtitle">Small utilities that live beside your notes.</p>
           </div>
         </header>
-        <SoundSettings />
         <ClockSection
           icon={<AlarmIcon size={17} />}
           title="Alarms"
