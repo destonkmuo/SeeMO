@@ -1887,6 +1887,12 @@ button.sidebar__today-row:hover {
   color: var(--ev-c-text-3);
 }
 
+/* Nameless empty blocks keep a full line of clickable height, invisibly. */
+.block__placeholder:empty::before {
+  content: ' ';
+  white-space: pre;
+}
+
 /* `/` insert menu: floats under the active block, inside its row. */
 .slash-menu {
   position: absolute;

@@ -28,6 +28,7 @@ function relativeTime(timestamp: number): string {
 function Note({ noteId }: { noteId: string }): React.JSX.Element {
   const note = useAppStore((state) => state.notes.find((n) => n.id === noteId) ?? null)
   const updateNote = useAppStore((state) => state.updateNote)
+  const createNote = useAppStore((state) => state.createNote)
   const deleteNote = useAppStore((state) => state.deleteNote)
   const imageLayout = useAppStore((state) => state.imageLayout)
 
@@ -336,6 +337,9 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
             onChange={(content) => updateNote(note.id, { content })}
             placeholder="Write anything…  # heading · - list · **bold** · $math$ · ```js runs · Shift+Enter new block"
             images={imagesControls}
+            onCreateNote={() => {
+              createNote()
+            }}
           />
         </div>
       </div>

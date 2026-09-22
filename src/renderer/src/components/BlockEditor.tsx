@@ -13,8 +13,10 @@ interface SlashCommand {
   badge: string
   hint: string
   keywords: string
-  /** Skeleton to insert; `|` marks where the caret lands. */
+  /** Skeleton to insert; `|` marks where the caret lands. Empty for actions. */
   insert: string
+  /** App-level action instead of a text insert. */
+  action?: 'create-note'
 }
 
 /**
@@ -111,6 +113,15 @@ const SLASH_COMMANDS: SlashCommand[] = [
     hint: '[text](url)',
     keywords: 'url href anchor',
     insert: '[|](url)'
+  },
+  {
+    id: 'page',
+    title: 'New page',
+    badge: '+',
+    hint: 'create',
+    keywords: 'new page note document create',
+    insert: '',
+    action: 'create-note'
   }
 ]
 
@@ -140,6 +151,7 @@ interface BlockEditorProps {
   onChange: (value: string) => void
   placeholder?: string
   images?: ImageControls
+  onCreateNote?: () => void
 }
 
 /**
@@ -198,7 +210,8 @@ function BlockEditor({
   value,
   onChange,
   placeholder,
-  images
+  images,
+  onCreateNote
 }: BlockEditorProps): React.JSX.Element {
   const [blocks, setBlocks] = useState<string[]>(() => splitBlocks(value))
   const [active, setActive] = useState<number | null>(null)
@@ -438,6 +451,13 @@ function BlockEditor({
   }
 
   const applySlash = (index: number, cmd: SlashCommand): void => {
+    // App actions (new page/note) don't touch the text.
+    if (cmd.action === 'create-note') {
+      setSlash(null)
+      setActive(null)
+      onCreateNote?.()
+      return
+    }
     const el = editorFor(index)
     const text = blocks[index] ?? ''
     const caret = el ? el.selectionStart : text.length
@@ -685,10 +705,10 @@ function BlockEditor({
               >
                 {block.trim() ? (
                   <Markdown source={block} images={images} />
+                ) : index === 0 ? (
+                  <span className="block__placeholder">{placeholder}</span>
                 ) : (
-                  <span className="block__placeholder">
-                    {index === 0 ? placeholder : 'Empty block'}
-                  </span>
+                  <span className="block__placeholder" aria-hidden="true" />
                 )}
               </div>
             )}
