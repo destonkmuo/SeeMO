@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NAV_ITEMS } from '../nav'
 import { buildNoteGraph, orderedNotes } from '../notes'
+import { blankFlashcardsBody, blankMindmapBody, blankQuizBody, parseStudyChild } from '../study'
+import { addHiddenPage, splitHidden } from '../subpages'
 import { importDroppedPicture } from '../images'
 import { LOCAL_CALENDAR_ID, expandItemDates, todayISO, type CalendarItem } from '../planner'
 import {
@@ -12,14 +14,17 @@ import {
 } from '../store/appStore'
 import {
   CalendarIcon,
+  CardsIcon,
   ChevronDownIcon,
   ExclamationIcon,
   FileTextIcon,
   GraphIcon,
   MicIcon,
   MicMutedIcon,
+  MindmapIcon,
   MoreIcon,
   PlusIcon,
+  QuizIcon,
   RestoreIcon,
   SearchIcon,
   SettingsIcon,
@@ -103,7 +108,11 @@ function TodaySection(): React.JSX.Element {
           onClick={() => setOpen((value) => !value)}
         >
           <span className="sidebar__section-title">Today</span>
-          {count > 0 && <span className="sidebar__today-count">{count}</span>}
+          {count > 0 && (
+            <span key={count} className="sidebar__today-count">
+              {count}
+            </span>
+          )}
           <ChevronDownIcon size={14} className={`sidebar__chevron${open ? ' is-open' : ''}`} />
         </button>
         <button
@@ -116,8 +125,9 @@ function TodaySection(): React.JSX.Element {
           <CalendarIcon size={14} />
         </button>
       </div>
-      {open && (
-        <>
+      {/* Kept mounted for the expand/collapse glide; inert while shut. */}
+      <div className="sidebar__today-body" inert={!open}>
+        <div className="sidebar__today-body-inner">
           {events.length > 0 && <p className="sidebar__today-group">Events</p>}
           {events.map((event) => (
             <button
@@ -159,8 +169,8 @@ function TodaySection(): React.JSX.Element {
           {count === 0 && (
             <p className="sidebar__empty">{plannerReady ? 'Nothing on for today.' : 'Loading…'}</p>
           )}
-        </>
-      )}
+        </div>
+      </div>
     </section>
   )
 }
@@ -450,6 +460,37 @@ function Sidebar(): React.JSX.Element {
     }
   }
 
+  /** Add an individual child (page or JSON study app) under a note. */
+  const createChildFor = (
+    parentId: string,
+    kind: 'page' | 'flashcards' | 'mindmap' | 'quiz'
+  ): void => {
+    const state = useAppStore.getState()
+    const parent = state.notes.find((n) => n.id === parentId)
+    if (!parent || parent.deletedAt) return
+    let title = 'Untitled page'
+    let body: string | null = null
+    if (kind !== 'page') {
+      const base = (parent.title.trim() || 'Untitled').slice(0, 40)
+      title =
+        kind === 'mindmap' ? `${base} mindmap` : kind === 'quiz' ? `${base} quiz` : `${base} set`
+      body =
+        kind === 'mindmap'
+          ? blankMindmapBody()
+          : kind === 'quiz'
+            ? blankQuizBody()
+            : blankFlashcardsBody()
+    }
+    const childId = state.createNote(title)
+    if (body) state.updateNote(childId, { content: body })
+    const child = useAppStore.getState().notes.find((n) => n.id === childId)
+    state.updateNote(parentId, {
+      content: addHiddenPage(parent.content, child?.title.trim() || title)
+    })
+    setMenu(null)
+    state.openNote(childId)
+  }
+
   const destroyNoteForever = (note: Note): void => {
     const label = note.title.trim() || 'Untitled'
     if (window.confirm(`Destroy "${label}" forever? This cannot be undone.`)) {
@@ -590,7 +631,17 @@ function Sidebar(): React.JSX.Element {
   // Notion-style tree: a note with outgoing [[links]] expands to reveal those
   // child pages nested beneath it. Only top-level rows are draggable; nested
   // rows are link views into the same flat order. `ancestors` guards cycles.
+  // JSON study children render their app icon instead of the page icon.
   const renderTree = (note: Note, depth: number, ancestors: string[]): React.JSX.Element => {
+    const studyType = parseStudyChild(splitHidden(note.content).body)?.type ?? null
+    const NoteIcon =
+      studyType === 'flashcards'
+        ? CardsIcon
+        : studyType === 'mindmap'
+          ? MindmapIcon
+          : studyType === 'quiz'
+            ? QuizIcon
+            : FileTextIcon
     const kids = (graph.children.get(note.id) ?? []).filter(
       (kid) => !ancestors.includes(kid.id) && matchesQuery(kid)
     )
@@ -692,7 +743,7 @@ function Sidebar(): React.JSX.Element {
                 note.title ? `${note.title} · double-click to rename` : 'Double-click to rename'
               }
             >
-              <FileTextIcon size={15} />
+              <NoteIcon size={15} />
               <span className="sidebar__label">{note.title.trim() || 'Untitled'}</span>
             </button>
           )}
@@ -1017,6 +1068,7 @@ function Sidebar(): React.JSX.Element {
           if (!target || target.deletedAt) return null
           const label = target.title.trim() || 'Untitled'
           const isFav = favorites.includes(target.id)
+          const isStudyChild = parseStudyChild(splitHidden(target.content).body) !== null
           return (
             <div
               className="note-menu note-menu--fixed"
@@ -1062,6 +1114,43 @@ function Sidebar(): React.JSX.Element {
               >
                 {isFav ? 'Unfavorite' : 'Favorite'}
               </button>
+              {!isStudyChild && (
+                <>
+                  <p className="tabmenu__label">Add child</p>
+                  <button
+                    type="button"
+                    className="note-menu__item"
+                    onClick={() => createChildFor(target.id, 'page')}
+                  >
+                    <FileTextIcon size={14} />
+                    New page
+                  </button>
+                  <button
+                    type="button"
+                    className="note-menu__item"
+                    onClick={() => createChildFor(target.id, 'flashcards')}
+                  >
+                    <CardsIcon size={14} />
+                    New flashcards
+                  </button>
+                  <button
+                    type="button"
+                    className="note-menu__item"
+                    onClick={() => createChildFor(target.id, 'mindmap')}
+                  >
+                    <MindmapIcon size={14} />
+                    New mindmap
+                  </button>
+                  <button
+                    type="button"
+                    className="note-menu__item"
+                    onClick={() => createChildFor(target.id, 'quiz')}
+                  >
+                    <QuizIcon size={14} />
+                    New quiz (blank)
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 className="note-menu__item note-menu__item--danger"
@@ -1111,40 +1200,46 @@ function Sidebar(): React.JSX.Element {
                 Empty
               </button>
             </div>
-            {trashOpen &&
-              trashed.map((note) => {
-                const label = note.title.trim() || 'Untitled'
-                return (
-                  <div key={note.id} className="sidebar__trash-row" title={label}>
-                    <FileTextIcon size={12} />
-                    <span className="sidebar__label">{label}</span>
-                    <span className="sidebar__trash-days">
-                      {trashDaysLeft(note.deletedAt ?? nowMs, nowMs)} left
-                    </span>
-                    <button
-                      type="button"
-                      className="sidebar__icon-btn"
-                      title={`Restore ${label}`}
-                      aria-label={`Restore ${label}`}
-                      onClick={() => {
-                        restoreNote(note.id)
-                        openNoteInCurrentTab(note.id)
-                      }}
-                    >
-                      <RestoreIcon size={11} />
-                    </button>
-                    <button
-                      type="button"
-                      className="sidebar__icon-btn sidebar__icon-btn--danger"
-                      title={`Destroy ${label} forever`}
-                      aria-label={`Destroy ${label} forever`}
-                      onClick={() => destroyNoteForever(note)}
-                    >
-                      <TrashIcon size={11} />
-                    </button>
-                  </div>
-                )
-              })}
+            <div
+              className={`sidebar__trash-list${trashOpen ? ' is-open' : ''}`}
+              aria-hidden={!trashOpen}
+            >
+              <div className="sidebar__trash-list-inner">
+                {trashed.map((note) => {
+                  const label = note.title.trim() || 'Untitled'
+                  return (
+                    <div key={note.id} className="sidebar__trash-row" title={label}>
+                      <FileTextIcon size={12} />
+                      <span className="sidebar__label">{label}</span>
+                      <span className="sidebar__trash-days">
+                        {trashDaysLeft(note.deletedAt ?? nowMs, nowMs)} left
+                      </span>
+                      <button
+                        type="button"
+                        className="sidebar__icon-btn"
+                        title={`Restore ${label}`}
+                        aria-label={`Restore ${label}`}
+                        onClick={() => {
+                          restoreNote(note.id)
+                          openNoteInCurrentTab(note.id)
+                        }}
+                      >
+                        <RestoreIcon size={11} />
+                      </button>
+                      <button
+                        type="button"
+                        className="sidebar__icon-btn sidebar__icon-btn--danger"
+                        title={`Destroy ${label} forever`}
+                        aria-label={`Destroy ${label} forever`}
+                        onClick={() => destroyNoteForever(note)}
+                      >
+                        <TrashIcon size={11} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           </div>
         </div>
       )}

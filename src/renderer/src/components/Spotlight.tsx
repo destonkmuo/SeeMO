@@ -7,7 +7,7 @@ import { CommandIcon, FileTextIcon, SearchIcon, TaskIcon } from './icons'
 function plainPreview(line: string, max = 120): string {
   const clean = line
     .replace(/```/g, '')
-    .replace(/[#*`>_~[\]()|-]/g, '')
+    .replace(/[#*`>_~[\]()|=-]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
   return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean

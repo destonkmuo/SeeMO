@@ -153,9 +153,14 @@ body {
   gap: 6px;
   flex: none;
   padding: 8px 10px 0;
-  border-bottom: 1px solid var(--line);
+  /* Separator is a background layer, not a border: backgrounds paint below
+     children, so the opaque active tab covers the line and melts into the
+     content. (A real border paints above the tab list's scroll clipping, so
+     the old negative-margin overlap could never hide the seam.) */
   background:
-    radial-gradient(120% 140% at 50% -40%, rgba(106, 176, 255, 0.07), transparent 60%), #1a1a1a;
+    linear-gradient(var(--line), var(--line)) left bottom / 100% 1px no-repeat,
+    radial-gradient(120% 140% at 50% -40%, rgba(106, 176, 255, 0.07), transparent 60%),
+    #1a1a1a;
   transition: padding-left 260ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
@@ -183,6 +188,7 @@ body {
   display: flex;
   align-items: center;
   flex: none;
+  min-width: 120px;
   max-width: 200px;
   border: 1px solid transparent;
   border-bottom: none;
@@ -228,6 +234,7 @@ body {
 }
 
 .tab.is-active {
+  position: relative;
   background: var(--main-bg);
   border-color: var(--line);
   box-shadow:
@@ -235,27 +242,44 @@ body {
     inset 0 2px 0 var(--accent);
 }
 
+/* Cover bar: masks the separator line (and the tab's own side-border feet)
+   directly beneath the active tab so it reads as one surface with the
+   content below. */
+.tab.is-active::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  bottom: 0;
+  height: 2px;
+  background: var(--main-bg);
+}
+
 .tab--note {
+  min-width: 120px;
   max-width: 240px;
 }
 
 .tab--note:hover {
-  /* Reveal the full title, but only grow to fit the content — never force
-     the tab to fill the bar. */
-  max-width: none;
+  /* Reveal more of a long title on hover, but stay capped so the tab
+     never blows out the bar layout. */
+  max-width: 320px;
 }
 
 .tab__main {
   display: flex;
   align-items: center;
-  gap: 7px;
+  justify-content: flex-start;
+  gap: 6px;
+  flex: 1;
   min-width: 0;
-  padding: 7px 4px 7px 11px;
+  padding: 7px 4px 7px 12px;
   border: none;
   background: transparent;
   color: var(--ev-c-text-2);
   font: inherit;
   font-size: 12.5px;
+  text-align: left;
   cursor: pointer;
 }
 
@@ -264,9 +288,18 @@ body {
 }
 
 .tab__label {
+  flex: 1;
+  position: relative;
+  top: 1px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
+}
+
+.tab__main > svg {
+  flex: none;
+  display: block;
 }
 
 .tab__dot {
@@ -500,7 +533,7 @@ body {
   max-height: 30%;
   overflow-y: auto;
   border-top: 1px solid var(--line);
-  padding: 2px 8px 3px 4px;
+  padding: 2px 6px 3px;
   background: var(--sidebar-bg);
   font-size: 11px;
 }
@@ -615,6 +648,73 @@ body {
   background: rgba(255, 255, 255, 0.02);
 }
 
+@keyframes today-row-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes today-count-pop {
+  0% {
+    transform: scale(0.6);
+  }
+  60% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Expand/collapse glide: content stays mounted, rows fold away. */
+.sidebar__today-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 260ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 200ms ease;
+}
+
+.sidebar__events.is-collapsed .sidebar__today-body {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.sidebar__today-body-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.sidebar__today-body-inner > * {
+  animation: today-row-in 260ms ease both;
+}
+
+.sidebar__today-body-inner > :nth-child(2) {
+  animation-delay: 30ms;
+}
+
+.sidebar__today-body-inner > :nth-child(3) {
+  animation-delay: 60ms;
+}
+
+.sidebar__today-body-inner > :nth-child(4) {
+  animation-delay: 90ms;
+}
+
+.sidebar__today-body-inner > :nth-child(5) {
+  animation-delay: 120ms;
+}
+
+.sidebar__today-body-inner > :nth-child(n + 6) {
+  animation-delay: 150ms;
+}
+
 /* "Today" rows: compact event/task lines under the agenda header. */
 .sidebar__today-head {
   padding: 0 2px 6px;
@@ -644,6 +744,7 @@ body {
   font-size: 11px;
   font-weight: 700;
   text-align: center;
+  animation: today-count-pop 240ms ease;
 }
 
 .sidebar__today-group {
@@ -1163,6 +1264,27 @@ button.sidebar__today-row:hover {
   color: var(--ev-c-text-2);
 }
 
+.note-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.note-menu__key {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ev-c-text-3);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.note-menu__sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+
 .note-menu__item--danger {
   color: var(--danger);
 }
@@ -1219,6 +1341,64 @@ button.sidebar__today-row:hover {
 /* Breathing room between the "Trash · N" title and its dropdown arrow. */
 .sidebar__trash-head .sidebar__chevron {
   margin-left: 8px;
+}
+
+/* The generic section-block carries an 8–12px top margin that leaves dead
+   space above the trash header, pinning it to the bottom of the footer —
+   most glaring when collapsed. Zero it here. */
+.sidebar__trash-footer .sidebar__section-block,
+.sidebar__trash-footer .sidebar__section-block:first-of-type {
+  margin-top: 0;
+}
+
+/* Centered trash header: the toggle + Empty button cluster in the middle.
+   Rows stay left-aligned so titles, days-left, and action buttons scan
+   like the notes list above. */
+.sidebar__trash-footer .sidebar__section-head {
+  justify-content: center;
+  gap: 8px;
+}
+
+.sidebar__trash-footer .sidebar__section-head .sidebar__trash-head {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Inline SVGs sit on the text baseline, which reads as vertically off-center
+   next to buttons and labels — block them so everything truly centers. */
+.sidebar__trash-footer svg {
+  display: block;
+  flex: none;
+}
+
+/* Animated trash collapse: the grid 0fr→1fr trick eases the true auto
+   height (no magic max-height), with a fade and delayed visibility flip so
+   hidden rows leave the tab order only after collapsing. */
+.sidebar__trash-list {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows 220ms ease,
+    opacity 180ms ease,
+    visibility 0s linear 220ms;
+}
+
+.sidebar__trash-list.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    grid-template-rows 220ms ease,
+    opacity 180ms ease;
+}
+
+.sidebar__trash-list-inner {
+  overflow: hidden;
+  min-height: 0;
 }
 
 .sidebar__trash-row {
@@ -2153,6 +2333,12 @@ button.sidebar__today-row:hover {
 
 .markdown del {
   color: var(--ev-c-text-3);
+}
+
+.markdown mark {
+  border-radius: 3px;
+  background: rgba(255, 196, 60, 0.38);
+  color: inherit;
 }
 
 /* --------------------------------------------------------------- home/page */
@@ -5248,4 +5434,1087 @@ select.dlg__input {
 
 .codeblock__frame {
   display: none;
+}
+
+/* ------------------------------------------------------------ hidden footer */
+.hidden-footer {
+  margin-top: 28px;
+  border: 1px dashed var(--line, rgba(255, 255, 255, 0.18));
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.hidden-footer__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.hidden-footer__title {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+.hidden-footer__count {
+  font-size: 12px;
+  color: var(--ev-c-text-3);
+}
+.hidden-footer__hint {
+  margin: 4px 0 10px;
+  font-size: 12.5px;
+  color: var(--ev-c-text-3);
+}
+.hidden-footer__empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ev-c-text-3);
+}
+.hidden-footer__lists {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hidden-footer__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hidden-footer__item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.hidden-footer__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.hidden-footer__link small {
+  opacity: 0.6;
+  font-size: 11px;
+}
+.hidden-footer__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  background: rgba(63, 143, 255, 0.2);
+  font-size: 11px;
+  font-weight: 700;
+}
+.hidden-footer__missing {
+  color: #ff9a9a;
+  font-size: 11px;
+}
+.hidden-footer__unlink {
+  border: none;
+  background: transparent;
+  color: var(--ev-c-text-3);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+/* ------------------------------------------------------------ study apps */
+@keyframes study-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes study-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.025);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes study-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-5px);
+  }
+  50% {
+    transform: translateX(5px);
+  }
+  75% {
+    transform: translateX(-3px);
+  }
+}
+
+.study {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: auto;
+}
+
+/* Child views live inside a note page: centered, capped, breathing room. */
+.study--child {
+  display: block;
+  height: auto;
+  overflow: visible;
+  padding: 12px 4px 48px;
+}
+
+/* Study children: centered titles, full-width mindmap canvas. */
+.note--study .note__title {
+  text-align: center;
+}
+
+.study--mindmap {
+  padding-bottom: 24px;
+}
+
+/* Mindmap takes the entire page: break out of the note padding, flush under
+   the meta bar (no gap, no second divider). */
+.study--mindmap {
+  margin: -44px -64px -160px;
+  padding: 0;
+}
+
+.study--mindmap .study__inner--child {
+  max-width: none;
+  padding: 0;
+}
+
+.study__inner {
+  max-width: 1080px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 28px 28px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: study-rise 320ms ease both;
+}
+
+.study__inner--child {
+  max-width: 720px;
+  padding: 8px 4px 0;
+  gap: 14px;
+}
+
+.study__muted {
+  color: var(--ev-c-text-3);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+/* Segmented Study/Edit control, centered. */
+.study__tabs {
+  display: flex;
+  gap: 2px;
+  align-self: center;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.study__tab {
+  padding: 7px 18px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--ev-c-text-3);
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.study__tab:hover {
+  color: inherit;
+}
+
+.study__tab.is-active {
+  background: rgba(63, 143, 255, 0.2);
+  color: inherit;
+  box-shadow: 0 2px 10px rgba(63, 143, 255, 0.25);
+}
+
+.study__deck-desc {
+  background: transparent;
+  border: none;
+  outline: none;
+  border-bottom: 1px dashed transparent;
+  color: var(--ev-c-text-3);
+  font-size: 13px;
+  padding: 4px 2px;
+  text-align: center;
+  transition: border-color 160ms ease;
+}
+
+.study__deck-desc:hover,
+.study__deck-desc:focus {
+  border-bottom-color: var(--line, rgba(255, 255, 255, 0.2));
+  color: inherit;
+}
+
+/* Progress row with an animated bar. */
+.cards__progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ev-c-text-3);
+}
+
+.cards__bar {
+  flex: 1;
+  height: 6px;
+  min-width: 60px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+/* Vertical rhythm between card, actions, and editor. */
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.cards__fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3f8fff, #2fd0e0);
+  transition: width 350ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* 3D flip card. */
+.flashcard {
+  position: relative;
+  min-height: 300px;
+  border-radius: 20px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(63, 143, 255, 0.12), transparent 60%),
+    rgba(255, 255, 255, 0.03);
+  color: inherit;
+  cursor: pointer;
+  display: block;
+  width: 100%;
+  padding: 0;
+  perspective: 1200px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  transition:
+    transform 180ms ease,
+    box-shadow 220ms ease,
+    border-color 180ms ease;
+}
+
+.flashcard:hover {
+  transform: translateY(-2px);
+  border-color: rgba(63, 143, 255, 0.45);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.32),
+    0 0 0 1px rgba(63, 143, 255, 0.2);
+}
+
+.flashcard:active {
+  transform: translateY(0) scale(0.995);
+}
+
+.flashcard__face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 36px 32px 56px;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transition: transform 480ms cubic-bezier(0.32, 0.72, 0, 1);
+  border-radius: 20px;
+}
+
+.flashcard__face--front {
+  transform: rotateY(0deg);
+}
+
+.flashcard__face--back {
+  transform: rotateY(180deg);
+  background: rgba(63, 143, 255, 0.07);
+}
+
+.flashcard.is-flipped .flashcard__face--front {
+  transform: rotateY(-180deg);
+}
+
+.flashcard.is-flipped .flashcard__face--back {
+  transform: rotateY(0deg);
+}
+
+.flashcard__side {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #3f8fff;
+  opacity: 0.9;
+}
+
+.flashcard__text {
+  font-size: clamp(20px, 3.4vw, 27px);
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: center;
+  overflow-wrap: anywhere;
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.flashcard__hint {
+  position: absolute;
+  bottom: 14px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--ev-c-text-3);
+}
+
+.cards__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 22px;
+}
+
+.cards__nav,
+.cards__judge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cards__actions .btn {
+  padding: 9px 20px;
+  border-radius: 999px;
+  font-weight: 600;
+  transition:
+    transform 150ms ease,
+    box-shadow 180ms ease;
+}
+
+.cards__actions .btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.cards__actions .btn--primary {
+  box-shadow: 0 6px 20px rgba(63, 143, 255, 0.35);
+}
+
+.cards__actions .btn--primary:hover:not(:disabled) {
+  box-shadow: 0 10px 26px rgba(63, 143, 255, 0.45);
+}
+
+/* Card editor rows. */
+.cards__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cards__row {
+  display: grid;
+  grid-template-columns: 28px 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px;
+  margin: 0 -6px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  animation: study-rise 260ms ease both;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.cards__row:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--line, rgba(255, 255, 255, 0.08));
+}
+
+.cards__row input {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+  color: inherit;
+  padding: 9px 12px;
+  font-size: 13px;
+  min-width: 0;
+  outline: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+.cards__row input:focus {
+  border-color: rgba(63, 143, 255, 0.6);
+  box-shadow: 0 0 0 3px rgba(63, 143, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.cards__num {
+  opacity: 0.45;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+}
+
+/* Blurred terms index under the card. Scroll (or click) reveals it. */
+.terms-list-anchor {
+  min-height: 1px;
+}
+
+@keyframes terms-cue-bounce {
+  0%,
+  100% {
+    transform: translateY(-2px);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateY(3px);
+    opacity: 1;
+  }
+}
+
+/* Scroll cue shown at the top until the terms are scrolled into reach. */
+.terms-scroll-cue {
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  background: transparent;
+  border: none;
+  color: var(--ev-c-text-3);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 20px 2px;
+  transition: color 160ms ease;
+}
+
+.terms-scroll-cue:hover {
+  color: inherit;
+}
+
+.terms-scroll-cue__chev {
+  font-size: 20px;
+  line-height: 1;
+  animation: terms-cue-bounce 1.6s ease-in-out infinite;
+}
+
+.terms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: study-rise 300ms ease both;
+}
+
+.terms-list__head {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ev-c-text-3);
+  text-align: center;
+}
+
+.terms-list__scroll {
+  position: relative;
+  max-height: 230px;
+  overflow-y: auto;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+  border-radius: 14px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+}
+
+.terms-list__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  transition: filter 300ms ease;
+}
+
+.terms-list__scroll:not(.is-revealed) .terms-list__items {
+  filter: blur(7px);
+  user-select: none;
+  pointer-events: none;
+}
+
+.terms-list__veil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.3);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ev-c-text-1);
+}
+
+.terms-list__scroll.is-revealed .terms-list__veil {
+  display: none;
+}
+
+.terms-list__row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.terms-list__row + .terms-list__row {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.terms-list__num {
+  flex: none;
+  width: 22px;
+  opacity: 0.45;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.terms-list__term {
+  flex: 1;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.terms-list__def {
+  flex: 1.4;
+  color: var(--ev-c-text-3);
+  overflow-wrap: anywhere;
+}
+
+/* Learn mode. */
+.learn__card {
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  border-radius: 18px;
+  padding: 26px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: center;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(63, 143, 255, 0.09), transparent 65%),
+    rgba(255, 255, 255, 0.02);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.24);
+  animation: study-rise 300ms ease both;
+}
+
+.learn__prompt {
+  font-size: clamp(19px, 3vw, 24px);
+  font-weight: 700;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.learn__options {
+  display: grid;
+  gap: 10px;
+}
+
+.learn__option {
+  text-align: center;
+  padding: 13px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  animation: study-rise 300ms ease both;
+  transition:
+    transform 150ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 180ms ease;
+}
+
+.learn__option:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(63, 143, 255, 0.5);
+  box-shadow: 0 6px 20px rgba(63, 143, 255, 0.15);
+}
+
+.learn__option.is-correct {
+  border-color: #2fd066;
+  background: rgba(47, 208, 102, 0.13);
+  animation: study-pop 320ms ease;
+}
+
+.learn__option.is-wrong {
+  border-color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.13);
+  animation: study-shake 320ms ease;
+}
+
+.learn__option.is-dim {
+  opacity: 0.45;
+}
+
+.learn__written {
+  display: flex;
+  gap: 8px;
+}
+
+.learn__written input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  color: inherit;
+  padding: 12px 14px;
+  font-size: 14px;
+  outline: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.learn__written input:focus {
+  border-color: rgba(63, 143, 255, 0.6);
+  box-shadow: 0 0 0 3px rgba(63, 143, 255, 0.15);
+}
+
+.learn__feedback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+  animation: study-pop 280ms ease;
+}
+
+/* Mindmap. */
+.mindmap__grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.mindmap__tree,
+.mindmap__kids {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mindmap__kids {
+  margin-left: 16px;
+  border-left: 1px dashed var(--line, rgba(255, 255, 255, 0.15));
+  padding-left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.mindmap__branch {
+  display: flex;
+  flex-direction: column;
+  animation: study-rise 260ms ease both;
+}
+
+.mindmap__node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  transition:
+    border-color 160ms ease,
+    box-shadow 180ms ease,
+    background-color 160ms ease;
+}
+
+.mindmap__node:hover {
+  border-color: rgba(63, 143, 255, 0.4);
+}
+
+.mindmap__node.is-active {
+  border-color: rgba(63, 143, 255, 0.6);
+  box-shadow: 0 0 0 3px rgba(63, 143, 255, 0.14);
+}
+
+.mindmap__node.is-root {
+  border-color: rgba(63, 143, 255, 0.55);
+  background: rgba(63, 143, 255, 0.1);
+  box-shadow: 0 6px 22px rgba(63, 143, 255, 0.18);
+}
+
+.mindmap__node input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: inherit;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.mindmap__tools {
+  display: flex;
+  gap: 2px;
+}
+
+.mindmap__tools button {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.55;
+  padding: 3px 5px;
+  transition:
+    opacity 140ms ease,
+    background-color 140ms ease;
+}
+
+.mindmap__tools button:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.mindmap__preview {
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+  border-radius: 16px;
+  padding: 12px;
+  overflow: auto;
+  max-height: 560px;
+  background:
+    radial-gradient(100% 60% at 50% 0%, rgba(63, 143, 255, 0.06), transparent 70%),
+    rgba(255, 255, 255, 0.015);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  animation: study-rise 320ms ease both;
+}
+
+.mindmap__preview svg {
+  display: block;
+  color: var(--ev-c-text-1);
+}
+
+.mindmap__preview svg text {
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Interactive canvas: Notebook-style pan + zoom, no static chrome. */
+.mindmap__canvas {
+  position: relative;
+  height: calc(100dvh - 96px);
+  min-height: 420px;
+  border: none;
+  border-radius: 0;
+  overflow: hidden;
+  background: transparent;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.24);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  animation: study-rise 320ms ease both;
+}
+
+.mindmap__canvas.is-panning {
+  cursor: grabbing;
+}
+
+.mindmap__viewport {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.mindmap__edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.mindmap__node-el {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 40px 12px 18px;
+  border-radius: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #3a4157;
+  color: #eceef5;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  cursor: grab;
+  transition:
+    border-color 160ms ease,
+    box-shadow 200ms ease;
+}
+
+.mindmap__node-el:active {
+  cursor: grabbing;
+}
+
+.mindmap__node-el:hover {
+  border-color: rgba(165, 180, 252, 0.55);
+}
+
+.mindmap__node-el.is-root {
+  background: #4b5370;
+  border-color: rgba(165, 180, 252, 0.45);
+  font-weight: 600;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+}
+
+.mindmap__node-el.is-selected {
+  border-color: #a5b4fc;
+  box-shadow:
+    0 0 0 3px rgba(165, 180, 252, 0.25),
+    0 10px 28px rgba(0, 0, 0, 0.4);
+}
+
+.mindmap__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mindmap__edit {
+  flex: 1;
+  min-width: 0;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(165, 180, 252, 0.6);
+  border-radius: 8px;
+  outline: none;
+  color: inherit;
+  font: inherit;
+  padding: 2px 8px;
+}
+
+.mindmap__chev {
+  position: absolute;
+  right: -11px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #232838;
+  color: #c6cbdd;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0 2px;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    transform 200ms ease;
+}
+
+.mindmap__chev:hover {
+  background: #2f3650;
+  color: #fff;
+}
+
+.mindmap__chev .mindmap__chev-glyph {
+  display: inline-block;
+  transform: rotate(0deg);
+  transition: transform 200ms ease;
+}
+
+.mindmap__chev.is-collapsed .mindmap__chev-glyph {
+  transform: rotate(180deg);
+}
+
+.mindmap__mini {
+  position: absolute;
+  top: -15px;
+  right: -8px;
+  display: flex;
+  gap: 4px;
+  animation: study-pop 220ms ease;
+}
+
+.mindmap__mini button {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #232838;
+  color: #dfe3f0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  transition:
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+
+.mindmap__mini button:hover {
+  background: #39415c;
+  transform: scale(1.08);
+}
+
+.mindmap__zoom {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(20, 24, 36, 0.92);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.mindmap__zoom button {
+  width: 34px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: #c6cbdd;
+  font-size: 15px;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.mindmap__zoom button + button {
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.mindmap__zoom button:hover {
+  background: rgba(165, 180, 252, 0.14);
+  color: #fff;
+}
+
+/* Quiz blank slate, centered. */
+.quiz__blank {
+  border: 1px dashed var(--line, rgba(255, 255, 255, 0.2));
+  border-radius: 18px;
+  padding: 36px 28px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  animation: study-rise 300ms ease both;
+}
+
+.quiz__blank-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.quiz__todo {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--ev-c-text-3);
+  font-size: 13px;
+}
+
+.quiz__todo li::before {
+  content: '○ ';
+  opacity: 0.7;
+}
+
+@media (max-width: 760px) {
+  .mindmap__canvas {
+    height: calc(100dvh - 96px);
+    min-height: 360px;
+  }
+
+  .flashcard {
+    min-height: 260px;
+  }
+
+  .cards__row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .cards__num {
+    display: none;
+  }
 }

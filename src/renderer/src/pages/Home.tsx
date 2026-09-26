@@ -12,7 +12,22 @@ import {
 import { NAV_LABELS } from '../nav'
 import { parseWikiLinks, resolveWikiTarget } from '../notes'
 import { expandItemDates, todayISO } from '../planner'
+import { parseStudyChild } from '../study'
+import { splitHidden } from '../subpages'
 import { useAppStore, type NavKey } from '../store/appStore'
+
+function previewFor(content: string): string {
+  const body = splitHidden(content).body.trim()
+  const child = parseStudyChild(body)
+  if (child?.type === 'flashcards') {
+    return `Flashcards · ${child.cards.length} ${child.cards.length === 1 ? 'term' : 'terms'}`
+  }
+  if (child?.type === 'mindmap') {
+    return `Mindmap · ${child.nodes.length} ${child.nodes.length === 1 ? 'node' : 'nodes'}`
+  }
+  if (child?.type === 'quiz') return 'Quiz · blank shell'
+  return body.replace(/[#*`>_~-]/g, '').slice(0, 90) || 'Empty note'
+}
 
 interface Capability {
   key: NavKey
@@ -234,12 +249,7 @@ function Home(): React.JSX.Element {
                   onClick={() => openNote(note.id)}
                 >
                   <span className="home__card-title">{note.title.trim() || 'Untitled'}</span>
-                  <span className="home__card-preview">
-                    {note.content
-                      .trim()
-                      .replace(/[#*`>_~-]/g, '')
-                      .slice(0, 90) || 'Empty note'}
-                  </span>
+                  <span className="home__card-preview">{previewFor(note.content)}</span>
                 </button>
               ))}
             </div>

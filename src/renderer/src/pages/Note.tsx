@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import BlockEditor from '../components/BlockEditor'
+import BlockEditor, { type ChildKind } from '../components/BlockEditor'
 import FindBar from '../components/FindBar'
+import { FlashcardsChildView, MindmapChildView, QuizChildView } from '../components/StudyChild'
 import { BLOCK_START, joinBlocks, splitBlocks } from '../markdown'
+import { addHiddenPage, joinHidden, splitHidden } from '../subpages'
+import { blankFlashcardsBody, blankMindmapBody, blankQuizBody, parseStudyChild } from '../study'
 import {
   contentImageSrcs,
   importDroppedPicture,
@@ -9,7 +12,7 @@ import {
   type ImageSide
 } from '../images'
 
-import { FileTextIcon, TrashIcon } from '../components/icons'
+import { FileTextIcon, TrashIcon, CardsIcon, MindmapIcon, QuizIcon } from '../components/icons'
 import { useAppStore, type ImageLayout } from '../store/appStore'
 
 /** Stable empty layout so memo deps don't churn. */
@@ -28,7 +31,6 @@ function relativeTime(timestamp: number): string {
 function Note({ noteId }: { noteId: string }): React.JSX.Element {
   const note = useAppStore((state) => state.notes.find((n) => n.id === noteId) ?? null)
   const updateNote = useAppStore((state) => state.updateNote)
-  const createNote = useAppStore((state) => state.createNote)
   const deleteNote = useAppStore((state) => state.deleteNote)
   const imageLayout = useAppStore((state) => state.imageLayout)
 
@@ -36,6 +38,7 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
   const [dropStatus, setDropStatus] = useState<{ msg: string; error: boolean } | null>(null)
   const dropStatusTimer = useRef<number | null>(null)
   const [findOpen, setFindOpen] = useState(false)
+  const [pageMenu, setPageMenu] = useState<{ x: number; y: number } | null>(null)
   const noteRef = useRef<HTMLElement>(null)
 
   // Ctrl/Cmd+F opens find-in-note. preventDefault stops the (absent) native
@@ -93,8 +96,71 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
 
   const edited = useMemo(() => (note ? relativeTime(note.updatedAt) : ''), [note])
 
+  // Hidden footer is never rendered: the editor only touches the body, and
+  // right-click → Add appends `[[links]]` to the footer instead of the body.
+  const body = useMemo(() => splitHidden(note?.content ?? '').body, [note?.content])
+
+  // Esc closes the page menu.
+  useEffect(() => {
+    if (!pageMenu) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setPageMenu(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pageMenu])
+
+  /** Create an individual child of this note (page or JSON study set). */
+  const createChild = (kind: ChildKind): { id: string; title: string } | null => {
+    const state = useAppStore.getState()
+    const parent = state.notes.find((n) => n.id === noteId)
+    if (!parent || parent.deletedAt) return null
+    if (kind === 'page') {
+      const childId = state.createNote('Untitled page')
+      const child = useAppStore.getState().notes.find((n) => n.id === childId)
+      const title = child?.title.trim() || 'Untitled page'
+      state.updateNote(noteId, { content: addHiddenPage(parent.content, title) })
+      return { id: childId, title }
+    }
+    const base = (parent.title.trim() || 'Untitled').slice(0, 40)
+    const title =
+      kind === 'flashcards'
+        ? `${base} set`
+        : kind === 'mindmap'
+          ? `${base} mindmap`
+          : `${base} quiz`
+    const childBody =
+      kind === 'mindmap'
+        ? blankMindmapBody()
+        : kind === 'quiz'
+          ? blankQuizBody()
+          : blankFlashcardsBody()
+    const childId = state.createNote(title)
+    state.updateNote(childId, { content: childBody })
+    const child = useAppStore.getState().notes.find((n) => n.id === childId)
+    const finalTitle = child?.title.trim() || title
+    state.updateNote(noteId, { content: addHiddenPage(parent.content, finalTitle) })
+    return { id: childId, title: finalTitle }
+  }
+
+  const addSubpage = (): void => {
+    const created = createChild('page')
+    if (created) useAppStore.getState().openNote(created.id)
+  }
+
+  const addStudyApp = (kind: 'flashcards' | 'mindmap' | 'quiz'): void => {
+    const created = createChild(kind)
+    if (created) useAppStore.getState().openNote(created.id)
+  }
+
+  /** Slash-command path: create the child and embed its link at the caret. */
+  const insertChildLink = (kind: ChildKind): string | null => {
+    const created = createChild(kind)
+    return created ? `[[${created.title}]]` : null
+  }
+
   const layout = imageLayout[noteId] ?? NO_LAYOUT
-  const srcsInContent = useMemo(() => contentImageSrcs(note?.content ?? ''), [note?.content])
+  const srcsInContent = useMemo(() => contentImageSrcs(body), [body])
 
   // Docked pictures: side + width by raw source. Entries whose source left
   // the markdown are ignored until it returns.
@@ -110,6 +176,10 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
     }
     return { sides, widths }
   }, [layout, srcsInContent])
+
+  // A child note whose body is basic JSON renders its study UI instead of
+  // the markdown editor. Hidden footers never render anywhere.
+  const studyChild = useMemo(() => parseStudyChild(body), [body])
 
   const toggleFloat = (src: string, side: ImageSide = 'right'): void => {
     const state = useAppStore.getState()
@@ -127,7 +197,8 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
     const state = useAppStore.getState()
     const current = state.notes.find((n) => n.id === noteId)
     if (!current || current.deletedAt) return
-    const blocks = splitBlocks(current.content)
+    const split = splitHidden(current.content)
+    const blocks = splitBlocks(split.body)
     // Locate the dragged line (first occurrence wins; duplicate sources
     // share one layout entry anyway).
     let from = -1
@@ -146,7 +217,7 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
     if (sourceLines.some((line) => line.trim())) blocks[from] = sourceLines.join('\n')
     else blocks.splice(from, 1)
     if (blocks.length === 0) {
-      state.updateNote(noteId, { content: imgLine })
+      state.updateNote(noteId, { content: joinHidden(imgLine, split.hidden) })
       state.setImageSide(noteId, src, target.side)
       return
     }
@@ -165,7 +236,7 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
       blocks[to] = lines.join('\n')
     }
     state.setImageSide(noteId, src, target.side)
-    state.updateNote(noteId, { content: joinBlocks(blocks) })
+    state.updateNote(noteId, { content: joinHidden(joinBlocks(blocks), split.hidden) })
     // Commit any in-progress edit first so the rewrite renders immediately.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
   }
@@ -194,9 +265,12 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
   }
 
   const appendBlocks = (blocks: string[]): void => {
-    if (blocks.length === 0) return
-    const body = note.content.trimEnd()
-    updateNote(note.id, { content: `${body}${body ? '\n\n' : ''}${blocks.join('\n\n')}\n` })
+    // Study children hold JSON, not markdown — never append blocks to them.
+    if (blocks.length === 0 || !note || studyChild) return
+    const split = splitHidden(note.content)
+    const trimmed = split.body.trimEnd()
+    const nextBody = `${trimmed}${trimmed ? '\n\n' : ''}${blocks.join('\n\n')}\n`
+    updateNote(note.id, { content: joinHidden(nextBody, split.hidden) })
   }
 
   const dragTypes = (event: React.DragEvent): string[] => Array.from(event.dataTransfer.types ?? [])
@@ -255,7 +329,7 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
   return (
     <main
       ref={noteRef}
-      className="note"
+      className={`note${studyChild ? ' note--study' : ''}`}
       onDragOver={(event) => {
         const types = dragTypes(event)
         const plausible =
@@ -302,50 +376,151 @@ function Note({ noteId }: { noteId: string }): React.JSX.Element {
       )}
 
       <div className={`note__scroll${dropActive ? ' is-drop-target' : ''}`}>
-        <div className="note__doc">
-          <input
-            className="note__title"
-            value={note.title}
-            placeholder="Untitled"
-            spellCheck={false}
-            onChange={(event) => updateNote(note.id, { title: event.target.value })}
-            onKeyDown={(event) => {
-              // Keep Tab inside the note: jump into the body editor instead of
-              // tabbing back to the sidebar search box. Ctrl/Cmd+Tab stays
-              // reserved for the global tab switcher.
-              if (
-                event.key === 'Tab' &&
-                !event.shiftKey &&
-                !event.ctrlKey &&
-                !event.metaKey &&
-                !event.altKey
-              ) {
-                event.preventDefault()
-                const blocks = document.querySelector('.blocks')
-                const editor = blocks?.querySelector<HTMLTextAreaElement>('textarea')
-                if (editor) {
-                  editor.focus()
-                } else {
-                  ;(blocks?.querySelector<HTMLElement>('.block') as HTMLElement | null)?.click()
+        <div
+          className="note__doc"
+          onContextMenu={(event) => {
+            // Right-click a markdown page to add individual children.
+            // Study (JSON) children take no subpages — leave native menu.
+            if (studyChild) return
+            // Right-click anywhere in the page offers Hidden-footer inserts.
+            // Let text inputs keep their native menu on small clicks? No —
+            // page-level Add actions are more useful here.
+            event.preventDefault()
+            setPageMenu({
+              x: Math.max(8, Math.min(event.clientX, window.innerWidth - 220)),
+              y: Math.max(8, Math.min(event.clientY, window.innerHeight - 280))
+            })
+          }}
+        >
+          {/* Mindmaps carry their title as the root pill on the canvas. */}
+          {!(studyChild && studyChild.type === 'mindmap') && (
+            <input
+              className="note__title"
+              value={note.title}
+              placeholder="Untitled"
+              spellCheck={false}
+              onChange={(event) => updateNote(note.id, { title: event.target.value })}
+              onKeyDown={(event) => {
+                // Keep Tab inside the note: jump into the body editor instead of
+                // tabbing back to the sidebar search box. Ctrl/Cmd+Tab stays
+                // reserved for the global tab switcher.
+                if (
+                  event.key === 'Tab' &&
+                  !event.shiftKey &&
+                  !event.ctrlKey &&
+                  !event.metaKey &&
+                  !event.altKey
+                ) {
+                  event.preventDefault()
+                  const blocks = document.querySelector('.blocks')
+                  const editor = blocks?.querySelector<HTMLTextAreaElement>('textarea')
+                  if (editor) {
+                    editor.focus()
+                  } else {
+                    ;(blocks?.querySelector<HTMLElement>('.block') as HTMLElement | null)?.click()
+                  }
                 }
-              }
-            }}
-          />
+              }}
+            />
+          )}
 
-          <BlockEditor
-            value={note.content}
-            onChange={(content) => updateNote(note.id, { content })}
-            placeholder="Write anything…  # heading · - list · **bold** · $math$ · ```js runs · Shift+Enter new block"
-            images={imagesControls}
-            onCreateNote={() => {
-              createNote()
-            }}
-          />
+          {studyChild ? (
+            <div className={`study study--child study--${studyChild.type}`}>
+              <div className="study__inner study__inner--child">
+                {studyChild.type === 'flashcards' ? (
+                  <FlashcardsChildView noteId={note.id} />
+                ) : studyChild.type === 'mindmap' ? (
+                  <MindmapChildView noteId={note.id} />
+                ) : (
+                  <QuizChildView noteId={note.id} />
+                )}
+              </div>
+            </div>
+          ) : (
+            <BlockEditor
+              value={body}
+              onChange={(nextBody) => {
+                const current = useAppStore.getState().notes.find((n) => n.id === note.id)
+                const split = splitHidden(current?.content ?? '')
+                updateNote(note.id, { content: joinHidden(nextBody, split.hidden) })
+              }}
+              placeholder="Write anything…  # heading · - list · **bold** · $math$ · ```js runs · Shift+Enter new block"
+              images={imagesControls}
+              onCreateChild={insertChildLink}
+            />
+          )}
         </div>
       </div>
 
-      {findOpen && note && (
-        <FindBar scope={noteRef} content={note.content} onClose={() => setFindOpen(false)} />
+      {pageMenu && (
+        <>
+          <div
+            className="note-menu__backdrop"
+            aria-hidden="true"
+            onClick={() => setPageMenu(null)}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setPageMenu(null)
+            }}
+          />
+          <div
+            className="note-menu note-menu--fixed"
+            role="menu"
+            aria-label="Add to this page"
+            style={{ left: pageMenu.x, top: pageMenu.y }}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            <p className="tabmenu__label">Add to this page</p>
+            <button
+              type="button"
+              className="note-menu__item"
+              onClick={() => {
+                setPageMenu(null)
+                addSubpage()
+              }}
+            >
+              <FileTextIcon size={14} />
+              New page
+            </button>
+            <button
+              type="button"
+              className="note-menu__item"
+              onClick={() => {
+                setPageMenu(null)
+                addStudyApp('flashcards')
+              }}
+            >
+              <CardsIcon size={14} />
+              New flashcards
+            </button>
+            <button
+              type="button"
+              className="note-menu__item"
+              onClick={() => {
+                setPageMenu(null)
+                addStudyApp('mindmap')
+              }}
+            >
+              <MindmapIcon size={14} />
+              New mindmap
+            </button>
+            <button
+              type="button"
+              className="note-menu__item"
+              onClick={() => {
+                setPageMenu(null)
+                addStudyApp('quiz')
+              }}
+            >
+              <QuizIcon size={14} />
+              New quiz (blank)
+            </button>
+          </div>
+        </>
+      )}
+
+      {findOpen && note && !studyChild && (
+        <FindBar scope={noteRef} content={body} onClose={() => setFindOpen(false)} />
       )}
     </main>
   )

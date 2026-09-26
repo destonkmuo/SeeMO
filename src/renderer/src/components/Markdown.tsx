@@ -26,7 +26,7 @@ import CodeBlock from './CodeBlock'
 // anyway, which requires `](`, but explicit ordering keeps it obvious).
 // Inline `$…$` requires non-space edges so prices like `$5 and $6` stay text.
 const INLINE_RE =
-  /(`[^`\n]+`)|(\$\$[^$\n]+\$\$)|(\$[^\s$](?:[^$\n]*[^\s$])?\$)|(\[\[[^\]\n]+\]\])|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~\n]+~~)|(!?\[[^\]\n]*\]\([^)\n]*\))/g
+  /(`[^`\n]+`)|(\$\$[^$\n]+\$\$)|(\$[^\s$](?:[^$\n]*[^\s$])?\$)|(\[\[[^\]\n]+\]\])|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~\n]+~~)|(==[^=\n]+==)|(!?\[[^\]\n]*\]\([^)\n]*\))/g
 
 /**
  * Smart arrows: `->` renders as → and friends. Applied only to plain-text
@@ -380,6 +380,8 @@ function renderInline(text: string, prefix: string, images?: ImageControls): Rea
       nodes.push(<strong key={key}>{smartArrows(token.slice(2, -2))}</strong>)
     } else if (token.startsWith('~~')) {
       nodes.push(<del key={key}>{smartArrows(token.slice(2, -2))}</del>)
+    } else if (token.startsWith('==')) {
+      nodes.push(<mark key={key}>{smartArrows(token.slice(2, -2))}</mark>)
     } else if (token.startsWith('*') || token.startsWith('_')) {
       nodes.push(<em key={key}>{smartArrows(token.slice(1, -1))}</em>)
     } else if (token.startsWith('!')) {

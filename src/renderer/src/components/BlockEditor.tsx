@@ -15,9 +15,12 @@ interface SlashCommand {
   keywords: string
   /** Skeleton to insert; `|` marks where the caret lands. Empty for actions. */
   insert: string
-  /** App-level action instead of a text insert. */
-  action?: 'create-note'
+  /** Child-page action: creates a JSON/markdown child + embeds its link. */
+  childKind?: ChildKind
 }
+
+/** A subpage that lives within its parent note as an individual child. */
+export type ChildKind = 'page' | 'flashcards' | 'mindmap' | 'quiz'
 
 /**
  * `/` menu: inserts raw markdown skeletons (still saved as `$…$`, ```, …),
@@ -119,9 +122,36 @@ const SLASH_COMMANDS: SlashCommand[] = [
     title: 'New page',
     badge: '+',
     hint: 'create',
-    keywords: 'new page note document create',
+    keywords: 'new page note document create subpage child link embed',
     insert: '',
-    action: 'create-note'
+    childKind: 'page'
+  },
+  {
+    id: 'flashcards',
+    title: 'New flashcards',
+    badge: '[]',
+    hint: 'create',
+    keywords: 'new flashcards deck study learn cards terms definitions child link embed',
+    insert: '',
+    childKind: 'flashcards'
+  },
+  {
+    id: 'mindmap',
+    title: 'New mindmap',
+    badge: 'M',
+    hint: 'create',
+    keywords: 'new mindmap branches nodes child link embed',
+    insert: '',
+    childKind: 'mindmap'
+  },
+  {
+    id: 'quiz',
+    title: 'New quiz',
+    badge: '?',
+    hint: 'create',
+    keywords: 'new quiz test blank child link embed',
+    insert: '',
+    childKind: 'quiz'
   }
 ]
 
@@ -151,7 +181,11 @@ interface BlockEditorProps {
   onChange: (value: string) => void
   placeholder?: string
   images?: ImageControls
-  onCreateNote?: () => void
+  /**
+   * Child-page action: creates the child under the current note and returns
+   * the `[[link]]` markdown to embed at the caret (null = failed).
+   */
+  onCreateChild?: (kind: ChildKind) => string | null
 }
 
 /**
@@ -211,7 +245,7 @@ function BlockEditor({
   onChange,
   placeholder,
   images,
-  onCreateNote
+  onCreateChild
 }: BlockEditorProps): React.JSX.Element {
   const [blocks, setBlocks] = useState<string[]>(() => splitBlocks(value))
   const [active, setActive] = useState<number | null>(null)
@@ -228,6 +262,10 @@ function BlockEditor({
   const containerRef = useRef<HTMLDivElement>(null)
   const caretRef = useRef<number | null>(null)
   const indentCaretRef = useRef<number | null>(null)
+  // Staged text selection (formatting keeps the inner text selected).
+  const selRef = useRef<[number, number] | null>(null)
+  // Custom selection menu (right-click on selected text).
+  const [selMenu, setSelMenu] = useState<{ index: number; x: number; y: number } | null>(null)
   const syncedRef = useRef(value)
   const dragFrom = useRef<number | null>(null)
   // Anchor row for Shift+Click range extension.
@@ -326,6 +364,10 @@ function BlockEditor({
       el.setSelectionRange(caretRef.current, caretRef.current)
       caretRef.current = null
     }
+    if (selRef.current !== null) {
+      el.setSelectionRange(selRef.current[0], selRef.current[1])
+      selRef.current = null
+    }
   }, [active])
 
   // Keep the focused block's textarea exactly as tall as its content.
@@ -339,6 +381,10 @@ function BlockEditor({
     if (caretRef.current !== null && document.activeElement === el) {
       el.setSelectionRange(caretRef.current, caretRef.current)
       caretRef.current = null
+    }
+    if (selRef.current !== null && document.activeElement === el) {
+      el.setSelectionRange(selRef.current[0], selRef.current[1])
+      selRef.current = null
     }
     if (indentCaretRef.current !== null && document.activeElement === el) {
       el.setSelectionRange(indentCaretRef.current, indentCaretRef.current)
@@ -365,6 +411,64 @@ function BlockEditor({
     const next = blocks.slice()
     next[index] = text
     commit(next)
+  }
+
+  /**
+   * Wrap the selection (or a placeholder) in markers. Toggles off when the
+   * selection is already wrapped. Leaves the inner text selected.
+   */
+  const wrapSelection = (index: number, before: string, after: string): void => {
+    const el = editorFor(index)
+    const text = blocks[index] ?? ''
+    const start = el ? el.selectionStart : text.length
+    const end = el ? el.selectionEnd : text.length
+    const sel = text.slice(start, end)
+    const wrapped =
+      sel.length > 0 &&
+      text.slice(Math.max(0, start - before.length), start) === before &&
+      text.slice(end, end + after.length) === after
+    if (wrapped) {
+      const ns = start - before.length
+      const next = blocks.slice()
+      next[index] = text.slice(0, ns) + sel + text.slice(end + after.length)
+      selRef.current = [ns, ns + sel.length]
+      setSlash(null)
+      setSelMenu(null)
+      commit(next)
+      return
+    }
+    const inner = sel || 'text'
+    const next = blocks.slice()
+    next[index] = text.slice(0, start) + before + inner + after + text.slice(end)
+    const base = start + before.length
+    selRef.current = [base, base + inner.length]
+    setSlash(null)
+    setSelMenu(null)
+    commit(next)
+  }
+
+  const clampMenu = (x: number, y: number): { x: number; y: number } => ({
+    x: Math.max(8, Math.min(x, window.innerWidth - 210)),
+    y: Math.max(8, Math.min(y, window.innerHeight - 260))
+  })
+
+  /** Right-click on a non-empty selection opens the formatting menu. */
+  const onTextContextMenu = (event: React.MouseEvent<HTMLTextAreaElement>, index: number): void => {
+    const el = event.currentTarget
+    if (el.selectionStart === el.selectionEnd) return // let native menu handle carets
+    event.preventDefault()
+    event.stopPropagation()
+    const at = clampMenu(event.clientX, event.clientY)
+    setSelMenu({ index, ...at })
+  }
+
+  const cutCopySelection = (index: number, cut: boolean): void => {
+    const el = editorFor(index)
+    if (!el || el.selectionStart === el.selectionEnd) return
+    // execCommand edits the DOM in place; sync React state straight after.
+    document.execCommand(cut ? 'cut' : 'copy')
+    setBlockText(index, el.value)
+    setSelMenu(null)
   }
 
   // After any reorder, glide rows from their old positions (FLIP) instead
@@ -636,11 +740,22 @@ function BlockEditor({
   }
 
   const applySlash = (index: number, cmd: SlashCommand): void => {
-    // App actions (new page/note) don't touch the text.
-    if (cmd.action === 'create-note') {
+    // Child actions create a subpage under the current note and embed its
+    // `[[link]]` where the `/token` was.
+    if (cmd.childKind) {
+      const el = editorFor(index)
+      const text = blocks[index] ?? ''
+      const caret = el ? el.selectionStart : text.length
+      const lineStart = text.lastIndexOf('\n', caret - 1) + 1
+      const match = /(^|\s)\/[\w-]*$/.exec(text.slice(lineStart, caret))
+      const link = onCreateChild?.(cmd.childKind) ?? null
       setSlash(null)
-      setActive(null)
-      onCreateNote?.()
+      if (!match || !link) return
+      const slashStart = lineStart + match.index + match[1].length
+      caretRef.current = slashStart + link.length
+      const next = blocks.slice()
+      next[index] = text.slice(0, slashStart) + link + text.slice(caret)
+      commit(next)
       return
     }
     const el = editorFor(index)
@@ -665,6 +780,36 @@ function BlockEditor({
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>, index: number): void => {
     const el = event.currentTarget
+
+    // Selection menu open for this block: Esc closes it (stays editing).
+    if (selMenu && selMenu.index === index && event.key === 'Escape') {
+      event.preventDefault()
+      setSelMenu(null)
+      return
+    }
+
+    // Inline formatting: Ctrl/Cmd+B/I/E, Ctrl/Cmd+Shift+H/X. Work with the
+    // `/` menu open too (it closes on format).
+    if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+      const key = event.key.toLowerCase()
+      const format: [string, string] | null =
+        key === 'b' && !event.shiftKey
+          ? ['**', '**']
+          : key === 'i' && !event.shiftKey
+            ? ['*', '*']
+            : key === 'e' && !event.shiftKey
+              ? ['`', '`']
+              : key === 'h' && event.shiftKey
+                ? ['==', '==']
+                : key === 'x' && event.shiftKey
+                  ? ['~~', '~~']
+                  : null
+      if (format) {
+        event.preventDefault()
+        wrapSelection(index, format[0], format[1])
+        return
+      }
+    }
 
     // The `/` menu owns Enter/Tab/arrows/Esc while open.
     if (slash && slash.index === index) {
@@ -983,6 +1128,7 @@ function BlockEditor({
                         }
                       }}
                       onBlur={() => setActive((current) => (current === index ? null : current))}
+                      onContextMenu={(event) => onTextContextMenu(event, index)}
                     />
                     {slash !== null && slash.index === index && (
                       <SlashMenu
@@ -1015,6 +1161,76 @@ function BlockEditor({
           </div>
         )
       })}
+      {selMenu && (
+        <div
+          className="note-menu__backdrop"
+          aria-hidden="true"
+          onClick={() => setSelMenu(null)}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setSelMenu(null)
+          }}
+        />
+      )}
+      {selMenu && (
+        <div
+          className="note-menu note-menu--fixed"
+          role="menu"
+          aria-label="Format selection"
+          style={{ left: selMenu.x, top: selMenu.y }}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          {(
+            [
+              {
+                label: 'Bold',
+                key: 'Ctrl+B',
+                run: (): void => wrapSelection(selMenu.index, '**', '**')
+              },
+              {
+                label: 'Italic',
+                key: 'Ctrl+I',
+                run: (): void => wrapSelection(selMenu.index, '*', '*')
+              },
+              {
+                label: 'Highlight',
+                key: 'Ctrl+Shift+H',
+                run: (): void => wrapSelection(selMenu.index, '==', '==')
+              },
+              {
+                label: 'Strikethrough',
+                key: 'Ctrl+Shift+X',
+                run: (): void => wrapSelection(selMenu.index, '~~', '~~')
+              },
+              {
+                label: 'Code',
+                key: 'Ctrl+E',
+                run: (): void => wrapSelection(selMenu.index, '`', '`')
+              }
+            ] as const
+          ).map((item) => (
+            <button key={item.label} type="button" className="note-menu__item" onClick={item.run}>
+              <span>{item.label}</span>
+              <kbd className="note-menu__key">{item.key}</kbd>
+            </button>
+          ))}
+          <div className="note-menu__sep" role="separator" />
+          <button
+            type="button"
+            className="note-menu__item"
+            onClick={() => cutCopySelection(selMenu.index, true)}
+          >
+            Cut
+          </button>
+          <button
+            type="button"
+            className="note-menu__item"
+            onClick={() => cutCopySelection(selMenu.index, false)}
+          >
+            Copy
+          </button>
+        </div>
+      )}
     </div>
   )
 }

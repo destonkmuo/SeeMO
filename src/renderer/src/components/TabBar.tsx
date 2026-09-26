@@ -211,10 +211,10 @@ function TabBar(): React.JSX.Element {
           onClick={() => setActiveTab(tab.id)}
         >
           <Icon size={14} />
+          <span className="tab__label">{label}</span>
           {tab.kind === 'agent' && (
             <span className={`tab__dot tab__dot--${coreState}`} title={`Core: ${coreState}`} />
           )}
-          <span className="tab__label">{label}</span>
         </button>
         <button
           type="button"

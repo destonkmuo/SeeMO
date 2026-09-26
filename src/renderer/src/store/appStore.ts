@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import { isKnownSoundId } from '../alarm'
 import type { ImageSide } from '../images'
 import { noteFileBase, orderedNotes, titleFromFileName, uniqueFileName } from '../notes'
+import { renameLinkTarget } from '../subpages'
 import { parseIcs } from '../ical'
 import {
   CALENDARS_FILE,
@@ -727,6 +728,7 @@ export const useAppStore = create<AppState>()(
       },
       alarmSoundId: 'classic',
       customAlarm: null,
+
       setCoreState: (coreState) => set({ coreState }),
       setAutoSync: (autoSync) => set({ autoSync }),
       setBackgroundListening: (backgroundListening) => set({ backgroundListening }),
@@ -1264,12 +1266,29 @@ export const useAppStore = create<AppState>()(
         set({ renamingNoteId: note.id })
         return note.id
       },
-      updateNote: (id, patch) =>
+      updateNote: (id, patch) => {
+        // Renames follow the note: retarget `[[Old]]` links everywhere else
+        // so hidden-footer children stay parented and inline embeds keep
+        // opening the same note instead of spawning lookalikes.
+        const current = get().notes.find((n) => n.id === id)
+        const rawTitle = patch.title
+        const effectiveOld = current ? current.title.trim() || 'Untitled' : ''
+        const effectiveNew = typeof rawTitle === 'string' ? rawTitle.trim() || 'Untitled' : ''
+        const sweep =
+          current && typeof rawTitle === 'string' && effectiveNew !== effectiveOld
+            ? { oldTitle: effectiveOld, newTitle: effectiveNew }
+            : null
         set((state) => ({
-          notes: state.notes.map((n) =>
-            n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n
-          )
-        })),
+          notes: state.notes.map((n) => {
+            if (n.id === id) return { ...n, ...patch, updatedAt: Date.now() }
+            if (sweep && !n.deletedAt) {
+              const next = renameLinkTarget(n.content, sweep.oldTitle, sweep.newTitle)
+              if (next !== n.content) return { ...n, content: next, updatedAt: Date.now() }
+            }
+            return n
+          })
+        }))
+      },
       deleteNote: (id) => {
         // Trash, not destroy: the record keeps its order/section slots so
         // restore lands it back in place. initVault auto-purges trash older
@@ -1453,10 +1472,15 @@ export const useAppStore = create<AppState>()(
                 taken.add(entry.fileName)
               }
               // Notes missing on disk (new, or pre-vault) get written out.
-              // Trashed notes stay fileless — their files were removed on trash.
+              // Trashed notes stay fileless — their files were removed on
+              // trash — but their records are kept so Trash survives reloads.
               for (const note of state.notes) {
-                if (note.deletedAt) continue
                 if (disk.some((entry) => entry.fileName === note.fileName)) continue
+                if (note.deletedAt) {
+                  notes.push(note)
+                  if (note.fileName) taken.add(note.fileName)
+                  continue
+                }
                 const fileName = uniqueFileName(note.fileName || noteFileBase(note.title), taken)
                 taken.add(fileName)
                 notes.push(fileName === note.fileName ? note : { ...note, fileName })
@@ -2005,6 +2029,15 @@ export const useAppStore = create<AppState>()(
             if ((tab as { kind?: string }).kind === 'todo') return { id: tab.id, kind: 'tasks' }
             // The SeeMO Activity page was removed; land those tabs on Home.
             if ((tab as { kind?: string }).kind === 'activity') return { id: tab.id, kind: 'home' }
+            // Study sets live within notes now; old top-level tabs land Home.
+            if (
+              (tab as { kind?: string }).kind === 'flashcards' ||
+              (tab as { kind?: string }).kind === 'learn' ||
+              (tab as { kind?: string }).kind === 'mindmap' ||
+              (tab as { kind?: string }).kind === 'quizzes'
+            ) {
+              return { id: tab.id, kind: 'home' }
+            }
             return tab
           })
           .filter((tab) => tab.kind !== 'note' || noteIds.has(tab.noteId))

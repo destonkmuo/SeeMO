@@ -412,3 +412,57 @@ export function MicMutedIcon(props: IconProps): React.JSX.Element {
     </IconBase>
   )
 }
+
+/** Flashcards: stacked study cards. */
+export function CardsIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <rect x="3" y="6" width="13" height="13" rx="2" />
+      <path d="M8 6V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-1" />
+      <path d="M7 11h6" />
+      <path d="M7 15h4" />
+    </IconBase>
+  )
+}
+
+/** Learn set: graduation cap. */
+export function LearnIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <path d="m2 9 10-5 10 5-10 5z" />
+      <path d="M6 11.5V16c0 1.5 2.7 3 6 3s6-1.5 6-3v-4.5" />
+      <path d="M22 9v5" />
+    </IconBase>
+  )
+}
+
+/** Mindmap: central node with branches. */
+export function MindmapIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="2.5" />
+      <circle cx="5" cy="5" r="1.8" />
+      <circle cx="19" cy="5" r="1.8" />
+      <circle cx="5" cy="19" r="1.8" />
+      <circle cx="19" cy="19" r="1.8" />
+      <path d="m10.2 10.2-3.4-3.4" />
+      <path d="m13.8 10.2 3.4-3.4" />
+      <path d="m10.2 13.8-3.4 3.4" />
+      <path d="m13.8 13.8 3.4 3.4" />
+    </IconBase>
+  )
+}
+
+/** Quiz: checkbox list. */
+export function QuizIcon(props: IconProps): React.JSX.Element {
+  return (
+    <IconBase {...props}>
+      <path d="m4 6 1.5 1.5L8 5" />
+      <path d="M12 5h8" />
+      <path d="m4 12 1.5 1.5L8 11" />
+      <path d="M12 11h8" />
+      <path d="m4 18 1.5 1.5L8 17" />
+      <path d="M12 17h8" />
+    </IconBase>
+  )
+}

@@ -75,11 +75,17 @@ export interface LinkableNote {
   title: string
 }
 
-/** Find the note a wiki-link points at, matching titles case-insensitively. */
+/**
+ * Find the note a wiki-link points at, matching titles case-insensitively.
+ * Blank titles resolve as "Untitled" (matching display), so clearing a title
+ * never orphans the note from its parent's hidden links.
+ */
 export function resolveWikiTarget(target: string, notes: LinkableNote[]): string | null {
   const needle = target.trim().toLowerCase()
   if (!needle) return null
-  return notes.find((note) => note.title.trim().toLowerCase() === needle)?.id ?? null
+  return (
+    notes.find((note) => (note.title.trim() || 'Untitled').toLowerCase() === needle)?.id ?? null
+  )
 }
 
 /**
