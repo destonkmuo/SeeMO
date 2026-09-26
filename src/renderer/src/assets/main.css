@@ -4673,8 +4673,11 @@ select.dlg__input {
   flex: none;
 }
 
-.sidebar__top {
+.is-mac .sidebar__top {
   padding: 40px 10px 6px;
+}
+
+.sidebar__top {
   -webkit-app-region: drag;
 }
 
