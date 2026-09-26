@@ -215,6 +215,12 @@ function BlockEditor({
 }: BlockEditorProps): React.JSX.Element {
   const [blocks, setBlocks] = useState<string[]>(() => splitBlocks(value))
   const [active, setActive] = useState<number | null>(null)
+  // Multi-block selection: sorted list of selected row indices while NOT editing.
+  // Shift+Click extends from the anchor, Cmd/Ctrl+Click toggles one row.
+  const [selected, setSelected] = useState<number[]>([])
+  // Merged edit: rows [from..to] shown as ONE textarea so the user can select
+  // down to the character across block boundaries and delete/type natively.
+  const [bulk, setBulk] = useState<{ from: number; to: number; text: string } | null>(null)
   const [dropHint, setDropHint] = useState<{ index: number; before: boolean } | null>(null)
   const [draggingId, setDraggingId] = useState<number | null>(null)
   const [slash, setSlash] = useState<{ index: number; token: string } | null>(null)
@@ -224,18 +230,23 @@ function BlockEditor({
   const indentCaretRef = useRef<number | null>(null)
   const syncedRef = useRef(value)
   const dragFrom = useRef<number | null>(null)
+  // Anchor row for Shift+Click range extension.
+  const anchorRef = useRef<number | null>(null)
+  const bulkRef = useRef<HTMLTextAreaElement | null>(null)
   // Pre-move row rects keyed by block text, consumed once for the FLIP glide.
   const flipRef = useRef<Map<string, DOMRect[]> | null>(null)
 
   // Adopt changes made elsewhere (vault refresh, note switch) unless the user
   // is mid-edit.
   useEffect(() => {
-    if (active !== null) return
+    if (active !== null || bulk !== null) return
     if (value !== syncedRef.current) {
       setBlocks(splitBlocks(value))
       syncedRef.current = value
+      setSelected([])
+      anchorRef.current = null
     }
-  }, [value, active])
+  }, [value, active, bulk])
 
   const commit = useCallback(
     (next: string[]) => {
@@ -245,6 +256,59 @@ function BlockEditor({
       onChange(text)
     },
     [onChange]
+  )
+
+  const clearMulti = useCallback(() => {
+    setSelected([])
+    anchorRef.current = null
+    setBulk(null)
+  }, [])
+
+  /** Delete whole selected rows (block-granular). Char-level delete happens
+   * inside the merged bulk textarea instead. */
+  const deleteSelected = useCallback(() => {
+    const sel = selected.slice().sort((a, b) => a - b)
+    if (sel.length === 0) return
+    const drop = new Set(sel)
+    let next = blocks.filter((_, i) => !drop.has(i))
+    if (next.length === 0) next = ['']
+    commit(next)
+    clearMulti()
+    setActive(null)
+  }, [blocks, commit, selected, clearMulti])
+
+  /** Merge rows [from..to] into one textarea for char-precise editing. */
+  const enterBulk = useCallback(
+    (from: number, to: number, caret: number | null = null) => {
+      const lo = Math.max(0, Math.min(from, to))
+      const hi = Math.min(blocks.length - 1, Math.max(from, to))
+      if (hi < lo) return
+      setActive(null)
+      setSelected([])
+      anchorRef.current = null
+      setBulk({ from: lo, to: hi, text: joinBlocks(blocks.slice(lo, hi + 1)) })
+      if (caret !== null) caretRef.current = caret
+    },
+    [blocks]
+  )
+
+  const commitBulk = useCallback(
+    (text: string) => {
+      setBulk((current) => {
+        if (!current) return current
+        const parts = splitBlocks(text)
+        const next = [...blocks.slice(0, current.from), ...parts, ...blocks.slice(current.to + 1)]
+        const finalBlocks = next.length > 0 ? next : ['']
+        commit(finalBlocks)
+        caretRef.current = null
+        // Land single-edit on the last touched piece for continued typing.
+        window.requestAnimationFrame(() => {
+          setActive(Math.min(current.from + parts.length - 1, finalBlocks.length - 1))
+        })
+        return null
+      })
+    },
+    [blocks, commit]
   )
 
   const editorFor = (index: number | null): HTMLTextAreaElement | null =>
@@ -281,6 +345,21 @@ function BlockEditor({
       indentCaretRef.current = null
     }
   }, [blocks, active])
+
+  // Bulk textarea: autofocus + autosize, then place a staged caret.
+  useLayoutEffect(() => {
+    if (!bulk) return
+    const el = bulkRef.current
+    if (!el) return
+    if (document.activeElement !== el) el.focus()
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+    if (caretRef.current !== null) {
+      const pos = Math.max(0, Math.min(caretRef.current, el.value.length))
+      el.setSelectionRange(pos, pos)
+      caretRef.current = null
+    }
+  }, [bulk])
 
   const setBlockText = (index: number, text: string): void => {
     const next = blocks.slice()
@@ -324,6 +403,7 @@ function BlockEditor({
   /** Reorder blocks by drag or keyboard. The editing caret follows its block. */
   const moveBlock = (from: number, toIndex: number, before: boolean): void => {
     if (from === toIndex) return
+    clearMulti()
     const next = blocks.slice()
     const [moved] = next.splice(from, 1)
     let insertAt = before ? toIndex : toIndex + 1
@@ -368,10 +448,11 @@ function BlockEditor({
   const onGripDragStart = (event: React.DragEvent<HTMLSpanElement>, index: number): void => {
     // Grips only render on rendered blocks, but never yank a block out from
     // under an in-flight structural change either.
-    if (active !== null) {
+    if (active !== null || bulk !== null) {
       event.preventDefault()
       return
     }
+    clearMulti()
     dragFrom.current = index
     setDraggingId(index)
     event.dataTransfer.effectAllowed = 'move'
@@ -432,9 +513,113 @@ function BlockEditor({
   }
 
   const activate = (index: number): void => {
+    clearMulti()
     caretRef.current = blocks[index]?.length ?? 0
     setSlash(null)
     setActive(index)
+  }
+
+  /** Click on a rendered block: modifiers select, plain click edits.
+   * A native drag-selection spanning rows becomes a multi-selection instead
+   * of opening a single editor (which would destroy the selection). */
+  const onViewClick = (event: React.MouseEvent, index: number): void => {
+    const native = window.getSelection()
+    if (
+      native &&
+      !native.isCollapsed &&
+      containerRef.current?.contains(native.anchorNode) &&
+      containerRef.current?.contains(native.focusNode)
+    ) {
+      const anchorRow =
+        (native.anchorNode as Node | null) instanceof Element
+          ? ((native.anchorNode as Element).closest?.('.block-row') as HTMLElement | null)
+          : ((
+              native.anchorNode as Node | null as unknown as { parentElement?: Element | null }
+            )?.parentElement?.closest?.('.block-row') as HTMLElement | null)
+      const focusRow =
+        (native.focusNode as Node | null) instanceof Element
+          ? ((native.focusNode as Element).closest?.('.block-row') as HTMLElement | null)
+          : ((
+              native.focusNode as Node | null as unknown as { parentElement?: Element | null }
+            )?.parentElement?.closest?.('.block-row') as HTMLElement | null)
+      const a = anchorRow?.dataset.row ? Number(anchorRow.dataset.row) : index
+      const f = focusRow?.dataset.row ? Number(focusRow.dataset.row) : index
+      if (
+        Number.isFinite(a) &&
+        Number.isFinite(f) &&
+        a >= 0 &&
+        f >= 0 &&
+        a < blocks.length &&
+        f < blocks.length &&
+        a !== f
+      ) {
+        event.preventDefault()
+        const lo = Math.min(a, f)
+        const hi = Math.max(a, f)
+        const range: number[] = []
+        for (let i = lo; i <= hi; i++) range.push(i)
+        setActive(null)
+        setBulk(null)
+        setSelected(range)
+        anchorRef.current = a
+        focusContainer()
+        return
+      }
+      if (a !== f) {
+        event.preventDefault()
+        return
+      }
+    }
+    if (event.shiftKey && anchorRef.current !== null) {
+      event.preventDefault()
+      const lo = Math.min(anchorRef.current, index)
+      const hi = Math.max(anchorRef.current, index)
+      const range: number[] = []
+      for (let i = lo; i <= hi; i++) range.push(i)
+      setActive(null)
+      setBulk(null)
+      setSelected(range)
+      focusContainer()
+      return
+    }
+    if (event.metaKey || event.ctrlKey) {
+      event.preventDefault()
+      anchorRef.current = index
+      setActive(null)
+      setBulk(null)
+      setSelected((prev) =>
+        prev.includes(index)
+          ? prev.filter((i) => i !== index)
+          : [...prev, index].sort((a, b) => a - b)
+      )
+      focusContainer()
+      return
+    }
+    anchorRef.current = index
+    activate(index)
+  }
+
+  const onGripClick = (event: React.MouseEvent, index: number): void => {
+    event.stopPropagation()
+    if (event.shiftKey && anchorRef.current !== null) {
+      const lo = Math.min(anchorRef.current, index)
+      const hi = Math.max(anchorRef.current, index)
+      const range: number[] = []
+      for (let i = lo; i <= hi; i++) range.push(i)
+      setActive(null)
+      setBulk(null)
+      setSelected(range)
+      return
+    }
+    anchorRef.current = index
+    setActive(null)
+    setBulk(null)
+    setSelected((prev) =>
+      prev.includes(index)
+        ? prev.filter((i) => i !== index)
+        : [...prev, index].sort((a, b) => a - b)
+    )
+    focusContainer()
   }
 
   /** Refresh the `/` menu from the caret; call on change/click/keys. */
@@ -564,10 +749,29 @@ function BlockEditor({
 
     // Plain Up/Down at the block's edge passes into the neighboring block
     // (Notion-style); otherwise the caret moves within the textarea.
+    // Shift+Arrow at the edge merges into a joint editor so a character
+    // selection can continue across the block boundary natively.
     if (!event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       const text = blocks[index] ?? ''
       const start = el.selectionStart
       const end = el.selectionEnd
+      if (event.shiftKey) {
+        if (event.key === 'ArrowDown' && end >= text.length && !text.slice(end).includes('\n')) {
+          if (index < blocks.length - 1) {
+            event.preventDefault()
+            enterBulk(index, index + 1, start)
+            return
+          }
+        }
+        if (event.key === 'ArrowUp' && start <= 0 && !text.slice(0, start).includes('\n')) {
+          if (index > 0) {
+            event.preventDefault()
+            const prevLen = (blocks[index - 1] ?? '').length
+            enterBulk(index - 1, index, prevLen + 2 + start)
+            return
+          }
+        }
+      }
       if (start === end) {
         if (event.key === 'ArrowDown' && !text.slice(end).includes('\n')) {
           if (index < blocks.length - 1) {
@@ -607,6 +811,7 @@ function BlockEditor({
   // Clicking the empty area under the last block appends one.
   const onContainerClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     if (event.target !== event.currentTarget) return
+    clearMulti()
     const next = blocks.slice()
     if (next[next.length - 1] !== '') next.push('')
     commit(next)
@@ -614,15 +819,69 @@ function BlockEditor({
     setActive(next.length - 1)
   }
 
+  const focusContainer = (): void => {
+    // Defer so the click's native selection settles first.
+    window.requestAnimationFrame(() => containerRef.current?.focus({ preventScroll: true }))
+  }
+
+  const onContainerKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (active !== null || bulk !== null || selected.length === 0) return
+    if (event.key === 'Backspace' || event.key === 'Delete') {
+      event.preventDefault()
+      deleteSelected()
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      const sorted = selected.slice().sort((a, b) => a - b)
+      enterBulk(sorted[0], sorted[sorted.length - 1])
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      clearMulti()
+    }
+  }
+
+  const onCopyCut = (event: React.ClipboardEvent<HTMLDivElement>, cut: boolean): void => {
+    if (active !== null || bulk !== null || selected.length === 0) return
+    const sorted = selected.slice().sort((a, b) => a - b)
+    // Only hijack when the native selection is inside our rows; otherwise
+    // let inputs/menus copy normally.
+    const native = window.getSelection()
+    if (
+      native &&
+      !native.isCollapsed &&
+      containerRef.current &&
+      native.anchorNode &&
+      native.focusNode &&
+      !containerRef.current.contains(native.anchorNode)
+    ) {
+      return
+    }
+    event.preventDefault()
+    const text = joinBlocks(sorted.map((i) => blocks[i] ?? ''))
+    event.clipboardData.setData('text/plain', text)
+    if (cut) deleteSelected()
+  }
+
   return (
     <div
       className="blocks"
       ref={containerRef}
+      tabIndex={-1}
       onClick={onContainerClick}
+      onKeyDown={onContainerKeyDown}
+      onCopy={(event) => onCopyCut(event, false)}
+      onCut={(event) => onCopyCut(event, true)}
       onDragOver={onContainerDragOver}
       onDrop={onContainerDrop}
     >
+      {selected.length > 0 && active === null && bulk === null && (
+        <p className="block-row__multibar" role="status">
+          {selected.length} {selected.length === 1 ? 'block' : 'blocks'} selected — Enter to edit
+          together · Delete to remove · Esc to clear · Shift+Click extends
+        </p>
+      )}
       {blocks.map((block, index) => {
+        // Rows inside a merged bulk edit are replaced by the single textarea.
+        if (bulk && index > bulk.from && index <= bulk.to) return null
         const hint =
           dropHint && dropHint.index === index
             ? dropHint.before
@@ -630,87 +889,128 @@ function BlockEditor({
               : ' block-row--drop-after'
             : ''
         const dragging = draggingId === index ? ' block-row--dragging' : ''
+        const isSel = selected.includes(index) ? ' block-row--selected' : ''
+        const isBulkFrom = bulk && bulk.from === index
         return (
           <div
             key={`row-${index}`}
-            className={`block-row${hint}${dragging}`}
+            data-row={index}
+            className={`block-row${hint}${dragging}${isSel}`}
             onDragOver={(event) => onRowDragOver(event, index)}
             onDrop={(event) => onRowDrop(event, index)}
           >
-            {index !== active && (
-              <span
-                className="block__grip"
-                draggable
-                role="button"
-                title="Drag to move block"
-                aria-label={`Drag to move block ${index + 1}`}
-                onClick={(event) => event.stopPropagation()}
-                onDragStart={(event) => onGripDragStart(event, index)}
-                onDragEnd={clearDrag}
-              >
-                <GripIcon size={15} />
-              </span>
-            )}
-            {index === active ? (
-              <>
-                <textarea
-                  key={`edit-${index}`}
-                  data-block={index}
-                  className="block__input"
-                  value={block}
-                  rows={1}
-                  spellCheck={false}
-                  placeholder={index === 0 ? placeholder : ''}
-                  onChange={(event) => {
-                    setBlockText(index, event.target.value)
-                    refreshSlash(index, event.target.value, event.target.selectionStart)
-                  }}
-                  onClick={(event) =>
-                    refreshSlash(
-                      index,
-                      event.currentTarget.value,
-                      event.currentTarget.selectionStart
-                    )
+            {isBulkFrom && bulk ? (
+              <textarea
+                ref={bulkRef}
+                data-bulk="true"
+                className="block__input block__input--bulk"
+                value={bulk.text}
+                rows={3}
+                spellCheck={false}
+                aria-label={`Editing blocks ${bulk.from + 1} to ${bulk.to + 1} together`}
+                onChange={(event) => {
+                  const next = event.target.value
+                  setBulk((prev) => (prev ? { ...prev, text: next } : prev))
+                  // Keep autosized while typing.
+                  event.target.style.height = 'auto'
+                  event.target.style.height = `${event.target.scrollHeight}px`
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    commitBulk((event.currentTarget as HTMLTextAreaElement).value)
+                    return
                   }
-                  onKeyDown={(event) => {
-                    onKeyDown(event, index)
-                    if (event.key !== 'Enter' && event.key !== 'Tab' && event.key !== 'Escape') {
-                      // Caret may have moved (arrows, typing filtered above).
-                      const el = event.currentTarget
-                      window.requestAnimationFrame(() => {
-                        if (document.activeElement === el) {
-                          refreshSlash(index, el.value, el.selectionStart)
+                  // Plain Escape/blur commits; Cmd+Enter commits and stays.
+                  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault()
+                    commitBulk((event.currentTarget as HTMLTextAreaElement).value)
+                  }
+                }}
+                onBlur={(event) => commitBulk(event.currentTarget.value)}
+              />
+            ) : (
+              <>
+                {index !== active && (
+                  <span
+                    className="block__grip"
+                    draggable
+                    role="button"
+                    title="Drag to move · Click to select · Shift+Click to extend"
+                    aria-label={`Drag to move block ${index + 1}`}
+                    onClick={(event) => onGripClick(event, index)}
+                    onDragStart={(event) => onGripDragStart(event, index)}
+                    onDragEnd={clearDrag}
+                  >
+                    <GripIcon size={15} />
+                  </span>
+                )}
+                {index === active ? (
+                  <>
+                    <textarea
+                      key={`edit-${index}`}
+                      data-block={index}
+                      className="block__input"
+                      value={block}
+                      rows={1}
+                      spellCheck={false}
+                      placeholder={index === 0 ? placeholder : ''}
+                      onChange={(event) => {
+                        setBlockText(index, event.target.value)
+                        refreshSlash(index, event.target.value, event.target.selectionStart)
+                      }}
+                      onClick={(event) =>
+                        refreshSlash(
+                          index,
+                          event.currentTarget.value,
+                          event.currentTarget.selectionStart
+                        )
+                      }
+                      onKeyDown={(event) => {
+                        onKeyDown(event, index)
+                        if (
+                          event.key !== 'Enter' &&
+                          event.key !== 'Tab' &&
+                          event.key !== 'Escape'
+                        ) {
+                          // Caret may have moved (arrows, typing filtered above).
+                          const el = event.currentTarget
+                          window.requestAnimationFrame(() => {
+                            if (document.activeElement === el) {
+                              refreshSlash(index, el.value, el.selectionStart)
+                            }
+                          })
                         }
-                      })
-                    }
-                  }}
-                  onBlur={() => setActive((current) => (current === index ? null : current))}
-                />
-                {slash !== null && slash.index === index && (
-                  <SlashMenu
-                    token={slash.token}
-                    selected={slashSel}
-                    onHover={setSlashSel}
-                    onPick={(cmd) => applySlash(index, cmd)}
-                  />
+                      }}
+                      onBlur={() => setActive((current) => (current === index ? null : current))}
+                    />
+                    {slash !== null && slash.index === index && (
+                      <SlashMenu
+                        token={slash.token}
+                        selected={slashSel}
+                        onHover={setSlashSel}
+                        onPick={(cmd) => applySlash(index, cmd)}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <div
+                    key={`view-${index}`}
+                    className="block markdown"
+                    role="button"
+                    tabIndex={-1}
+                    onClick={(event) => onViewClick(event, index)}
+                  >
+                    {block.trim() ? (
+                      <Markdown source={block} images={images} />
+                    ) : index === 0 ? (
+                      <span className="block__placeholder">{placeholder}</span>
+                    ) : (
+                      <span className="block__placeholder" aria-hidden="true" />
+                    )}
+                  </div>
                 )}
               </>
-            ) : (
-              <div
-                key={`view-${index}`}
-                className="block markdown"
-                role="button"
-                tabIndex={-1}
-                onClick={() => activate(index)}
-              >
-                {block.trim() ? (
-                  <Markdown source={block} images={images} />
-                ) : index === 0 ? (
-                  <span className="block__placeholder">{placeholder}</span>
-                ) : (
-                  <span className="block__placeholder" aria-hidden="true" />
-                )}
-              </div>
             )}
           </div>
         )

@@ -1883,6 +1883,27 @@ button.sidebar__today-row:hover {
   color: var(--ev-c-text-3);
 }
 
+.block__input--bulk {
+  background: rgba(63, 143, 255, 0.08);
+  outline: 1px solid rgba(63, 143, 255, 0.45);
+}
+
+/* Multi-block selection: whole rows highlight so Shift+Click / Cmd+Click
+   ranges are visible before Enter merges them into one editor. */
+.block-row--selected .block {
+  background: rgba(63, 143, 255, 0.14);
+  outline: 1px solid rgba(63, 143, 255, 0.4);
+}
+
+.block-row__multibar {
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(63, 143, 255, 0.12);
+  color: var(--ev-c-text-1);
+  font-size: 12.5px;
+}
+
 .block__placeholder {
   color: var(--ev-c-text-3);
 }
