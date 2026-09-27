@@ -4,15 +4,17 @@ import { XIcon } from './icons'
 
 /**
  * Floating SeeMO reply card, pinned to the bottom-right of the screen.
- * Appears when background listening is on and a fresh response arrives while
- * the user is anywhere but the SeeMO tab. Dismissing or opening the SeeMO tab
- * marks it seen so it never nags about old messages.
+ * Appears when a fresh response arrives while the user is anywhere but the
+ * SeeMO tab — including prompts sent from Spotlight, which deliberately do
+ * not navigate away. Dismissing or opening the SeeMO tab marks it seen so it
+ * never nags about old messages.
  */
 function AgentBubble(): React.JSX.Element | null {
-  const backgroundListening = useAppStore((state) => state.backgroundListening)
   const messages = useAppStore((state) => state.messages)
   const lastSeenAgentId = useAppStore((state) => state.lastSeenAgentId)
-  const activeTab = useAppStore((state) => state.tabs.find((t) => t.id === state.activeTabId) ?? null)
+  const activeTab = useAppStore(
+    (state) => state.tabs.find((t) => t.id === state.activeTabId) ?? null
+  )
   const openNav = useAppStore((state) => state.openNav)
   const markAgentSeen = useAppStore((state) => state.markAgentSeen)
 
@@ -27,7 +29,7 @@ function AgentBubble(): React.JSX.Element | null {
     if (message.role === 'agent') latest = message
   }
 
-  if (!backgroundListening || onAgentTab) return null
+  if (onAgentTab) return null
   if (!latest || latest.id === lastSeenAgentId) return null
 
   return (

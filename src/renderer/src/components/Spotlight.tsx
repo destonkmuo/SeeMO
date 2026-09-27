@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { respondTo } from '../agentBrain'
 import { NAV_BY_KEY, NAV_ITEMS } from '../nav'
 import { useAppStore } from '../store/appStore'
-import { CommandIcon, FileTextIcon, SearchIcon, TaskIcon } from './icons'
+import { AgentIcon, CommandIcon, FileTextIcon, SearchIcon, TaskIcon } from './icons'
+
+/**
+ * A query this long with zero matches is almost certainly a question for
+ * SeeMO rather than a search, so the assistant is offered automatically.
+ */
+const LONG_QUERY_CHARS = 12
 
 /** Plain-text single-line preview: strip markdown furniture, collapse space. */
 function plainPreview(line: string, max = 120): string {
@@ -39,6 +46,8 @@ type Result =
   | { kind: 'task'; id: string; title: string; lines: string[] }
   | { kind: 'nav'; id: string; title: string; lines: string[] }
   | { kind: 'command'; id: string; title: string; lines: string[] }
+  /** A prompt to send to SeeMO instead of a search hit. */
+  | { kind: 'prompt'; id: string; title: string; lines: string[] }
 
 interface Command {
   id: string
@@ -143,7 +152,13 @@ function Spotlight(): React.JSX.Element | null {
 
   const results = useMemo((): Result[] => {
     const live = notes.filter((n) => !n.deletedAt)
-    const needle = query.trim().toLowerCase()
+    const raw = query.trim()
+    // `@` turns the box into a direct prompt to SeeMO (search is bypassed).
+    if (raw.startsWith('@')) {
+      const prompt = raw.slice(1).trim()
+      return prompt ? [{ kind: 'prompt', id: 'ask', title: prompt, lines: ['Ask SeeMO'] }] : []
+    }
+    const needle = raw.toLowerCase()
     if (!needle) {
       // Idle state: recent notes plus every page.
       const recent = live
@@ -216,6 +231,10 @@ function Spotlight(): React.JSX.Element | null {
         out.push({ kind: 'command', id: command.id, title: command.title, lines: [command.hint] })
       }
     }
+    // Nothing matched a long query: offer the assistant as the default action.
+    if (out.length === 0 && raw.length >= LONG_QUERY_CHARS) {
+      out.push({ kind: 'prompt', id: 'ask', title: raw, lines: ['Ask SeeMO'] })
+    }
     return out.slice(0, 30)
   }, [notes, tasks, query])
 
@@ -226,7 +245,12 @@ function Spotlight(): React.JSX.Element | null {
     if (!result) return
     const state = useAppStore.getState()
     setOpen(false)
-    if (result.kind === 'note') state.openNoteInCurrentTab(result.id)
+    if (result.kind === 'prompt') {
+      // Same reply engine as the SeeMO page, but stay where the user is:
+      // the turn is logged and the answer surfaces in the floating bubble.
+      state.addChatMessage('user', result.title)
+      respondTo(result.title)
+    } else if (result.kind === 'note') state.openNoteInCurrentTab(result.id)
     else if (result.kind === 'task') state.openNav('tasks')
     else if (result.kind === 'command') {
       appCommands()
@@ -272,8 +296,8 @@ function Spotlight(): React.JSX.Element | null {
             className="spotlight__input"
             autoFocus
             value={query}
-            placeholder="Search notes, tasks, pages…"
-            aria-label="Search notes, tasks, pages"
+            placeholder="Search, or ask SeeMO with @…"
+            aria-label="Search notes, tasks, pages, or ask SeeMO"
             onChange={(event) => {
               setQuery(event.target.value)
               setSelected(0)
@@ -288,16 +312,22 @@ function Spotlight(): React.JSX.Element | null {
           <kbd className="sidebar__kbd">^T</kbd>
         </div>
         <ul className="spotlight__list">
-          {results.length === 0 && <li className="spotlight__empty">No matches.</li>}
+          {results.length === 0 && (
+            <li className="spotlight__empty">
+              {query.trim().startsWith('@') ? 'Type a question after @…' : 'No matches.'}
+            </li>
+          )}
           {results.map((result, index) => {
             const Icon =
-              result.kind === 'note'
-                ? FileTextIcon
-                : result.kind === 'task'
-                  ? TaskIcon
-                  : result.kind === 'command'
-                    ? CommandIcon
-                    : (NAV_BY_KEY[result.id]?.icon ?? FileTextIcon)
+              result.kind === 'prompt'
+                ? AgentIcon
+                : result.kind === 'note'
+                  ? FileTextIcon
+                  : result.kind === 'task'
+                    ? TaskIcon
+                    : result.kind === 'command'
+                      ? CommandIcon
+                      : (NAV_BY_KEY[result.id]?.icon ?? FileTextIcon)
             return (
               <li key={`${result.kind}-${result.id}`}>
                 <button
@@ -309,8 +339,13 @@ function Spotlight(): React.JSX.Element | null {
                   <Icon size={16} />
                   <span className="spotlight__text">
                     <span className="spotlight__label">
-                      <Highlight text={result.title} query={query.trim()} />
-                      <span className="spotlight__kind">{result.kind}</span>
+                      <Highlight
+                        text={result.title}
+                        query={result.kind === 'prompt' ? '' : query.trim()}
+                      />
+                      <span className="spotlight__kind">
+                        {result.kind === 'prompt' ? 'SeeMO' : result.kind}
+                      </span>
                     </span>
                     {result.lines.map((line, lineIndex) => (
                       <span key={lineIndex} className="spotlight__snippet">
@@ -323,7 +358,9 @@ function Spotlight(): React.JSX.Element | null {
             )
           })}
         </ul>
-        <p className="spotlight__hint">Enter runs · Esc closes · Ctrl+T reopens</p>
+        <p className="spotlight__hint">
+          Enter runs · @ asks SeeMO · long queries ask automatically · Esc closes
+        </p>
       </div>
     </div>
   )

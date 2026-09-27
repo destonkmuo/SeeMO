@@ -1,179 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { joinBlocks, splitBlocks } from '../markdown'
 import Markdown from './Markdown'
+import RichBlockEditor from './RichBlockEditor'
+import SlashMenu from './SlashMenu'
 import { GripIcon } from './icons'
 import type { ImageControls } from '../images'
+import { blockKind, isRichKind } from '../richText'
+import { filteredSlash, slashToken, type ChildKind, type SlashCommand } from '../slash'
+
+export type { ChildKind } from '../slash'
 
 /** Native DnD payload marking a drag as a block reorder (not a picture). */
 const BLOCK_MIME = 'application/x-seemo-block'
-
-interface SlashCommand {
-  id: string
-  title: string
-  badge: string
-  hint: string
-  keywords: string
-  /** Skeleton to insert; `|` marks where the caret lands. Empty for actions. */
-  insert: string
-  /** Child-page action: creates a JSON/markdown child + embeds its link. */
-  childKind?: ChildKind
-}
-
-/** A subpage that lives within its parent note as an individual child. */
-export type ChildKind = 'page' | 'flashcards' | 'mindmap' | 'quiz'
-
-/**
- * `/` menu: inserts raw markdown skeletons (still saved as `$…$`, ```, …),
- * so the document stays plain text under the WYSIWYG surface.
- */
-const SLASH_COMMANDS: SlashCommand[] = [
-  { id: 'h1', title: 'Heading 1', badge: 'H1', hint: '#', keywords: 'title header', insert: '# |' },
-  {
-    id: 'h2',
-    title: 'Heading 2',
-    badge: 'H2',
-    hint: '##',
-    keywords: 'title header',
-    insert: '## |'
-  },
-  {
-    id: 'h3',
-    title: 'Heading 3',
-    badge: 'H3',
-    hint: '###',
-    keywords: 'title header',
-    insert: '### |'
-  },
-  {
-    id: 'bullet',
-    title: 'Bullet list',
-    badge: '•',
-    hint: '-',
-    keywords: 'unordered point',
-    insert: '- |'
-  },
-  {
-    id: 'numbered',
-    title: 'Numbered list',
-    badge: '1.',
-    hint: '1.',
-    keywords: 'ordered',
-    insert: '1. |'
-  },
-  {
-    id: 'todo',
-    title: 'To-do',
-    badge: '☐',
-    hint: '- [ ]',
-    keywords: 'checkbox task check',
-    insert: '- [ ] |'
-  },
-  { id: 'quote', title: 'Quote', badge: '>', hint: '>', keywords: 'cite callout', insert: '> |' },
-  {
-    id: 'divider',
-    title: 'Divider',
-    badge: '—',
-    hint: '---',
-    keywords: 'separator rule hr',
-    insert: '---'
-  },
-  {
-    id: 'code',
-    title: 'Code block',
-    badge: '{}',
-    hint: '```js',
-    keywords: 'snippet javascript runnable',
-    insert: '```js\n|\n```'
-  },
-  {
-    id: 'math',
-    title: 'Math inline',
-    badge: '∑',
-    hint: '$…$',
-    keywords: 'formula latex equation',
-    insert: '$|$'
-  },
-  {
-    id: 'mathblock',
-    title: 'Math block',
-    badge: '$$',
-    hint: '$$…$$',
-    keywords: 'display formula latex equation',
-    insert: '$$\n|\n$$'
-  },
-  {
-    id: 'image',
-    title: 'Image',
-    badge: 'img',
-    hint: '![](url)',
-    keywords: 'picture photo embed',
-    insert: '![](|)'
-  },
-  {
-    id: 'link',
-    title: 'Link',
-    badge: '[]',
-    hint: '[text](url)',
-    keywords: 'url href anchor',
-    insert: '[|](url)'
-  },
-  {
-    id: 'page',
-    title: 'New page',
-    badge: '+',
-    hint: 'create',
-    keywords: 'new page note document create subpage child link embed',
-    insert: '',
-    childKind: 'page'
-  },
-  {
-    id: 'flashcards',
-    title: 'New flashcards',
-    badge: '[]',
-    hint: 'create',
-    keywords: 'new flashcards deck study learn cards terms definitions child link embed',
-    insert: '',
-    childKind: 'flashcards'
-  },
-  {
-    id: 'mindmap',
-    title: 'New mindmap',
-    badge: 'M',
-    hint: 'create',
-    keywords: 'new mindmap branches nodes child link embed',
-    insert: '',
-    childKind: 'mindmap'
-  },
-  {
-    id: 'quiz',
-    title: 'New quiz',
-    badge: '?',
-    hint: 'create',
-    keywords: 'new quiz test blank child link embed',
-    insert: '',
-    childKind: 'quiz'
-  }
-]
-
-/**
- * Slash token before the caret on the current line (`/ma` in `hi /ma`),
- * or null. The char before `/` must be start/whitespace so `a/b` and
- * `https://` never open the menu.
- */
-const slashToken = (value: string, caret: number): string | null => {
-  const before = value.slice(0, caret)
-  const line = before.slice(before.lastIndexOf('\n') + 1)
-  const match = /(^|\s)\/([\w-]*)$/.exec(line)
-  return match ? match[2] : null
-}
-
-const filteredSlash = (token: string): SlashCommand[] => {
-  const needle = token.toLowerCase()
-  if (!needle) return SLASH_COMMANDS
-  return SLASH_COMMANDS.filter(
-    (cmd) => cmd.title.toLowerCase().includes(needle) || cmd.keywords.includes(needle)
-  )
-}
 
 interface BlockEditorProps {
   /** Raw markdown for the whole note. */
@@ -192,54 +30,15 @@ interface BlockEditorProps {
  * Notion-style block editor.
  *
  * The document is shown as rendered markdown; clicking a block swaps just that
- * block for a textarea containing its raw markdown, so writing and preview are
- * the same surface. Enter adds a newline inside the block, Shift+Enter splits
- * a block, Tab indents (never leaves the editor), Backspace at the start
- * merges into the previous one, Escape leaves edit mode.
+ * block for a rich editor that shows the formatted result (bold looks bold,
+ * lists look like lists) while the note is stored as plain markdown. Code,
+ * rules, and display math keep a raw textarea, where editing the source is the
+ * expected behavior.
+ *
+ * Enter adds a newline inside the block, Shift+Enter splits a block, Tab
+ * indents (never leaves the editor), Backspace at the start merges into the
+ * previous one, Escape leaves edit mode.
  */
-function SlashMenu({
-  token,
-  selected,
-  onHover,
-  onPick
-}: {
-  token: string
-  selected: number
-  onHover: (index: number) => void
-  onPick: (cmd: SlashCommand) => void
-}): React.JSX.Element {
-  const items = filteredSlash(token)
-  const safe = items.length === 0 ? 0 : selected % items.length
-  return (
-    <div className="slash-menu" role="listbox" aria-label="Insert block">
-      {items.length === 0 ? (
-        <p className="slash-menu__empty">No matches</p>
-      ) : (
-        items.map((cmd, i) => (
-          <button
-            key={cmd.id}
-            type="button"
-            role="option"
-            aria-selected={i === safe}
-            className={`slash-menu__item${i === safe ? ' is-selected' : ''}`}
-            // mousedown default would blur the textarea (closing edit mode)
-            // before click fires; prevent it so picking keeps the caret.
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => onPick(cmd)}
-            onMouseEnter={() => onHover(i)}
-          >
-            <span className="slash-menu__badge" aria-hidden="true">
-              {cmd.badge}
-            </span>
-            <span className="slash-menu__title">{cmd.title}</span>
-            <span className="slash-menu__hint">{cmd.hint}</span>
-          </button>
-        ))
-      )}
-    </div>
-  )
-}
-
 function BlockEditor({
   value,
   onChange,
@@ -259,6 +58,11 @@ function BlockEditor({
   const [draggingId, setDraggingId] = useState<number | null>(null)
   const [slash, setSlash] = useState<{ index: number; token: string } | null>(null)
   const [slashSel, setSlashSel] = useState(0)
+  // Where a freshly mounted rich editor should drop its caret.
+  const [caretHint, setCaretHint] = useState<'start' | 'end'>('end')
+  // Triple-click escape hatch: edit this block's raw markdown source instead
+  // of the formatted surface.
+  const [rawMode, setRawMode] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const caretRef = useRef<number | null>(null)
   const indentCaretRef = useRef<number | null>(null)
@@ -341,6 +145,7 @@ function BlockEditor({
         caretRef.current = null
         // Land single-edit on the last touched piece for continued typing.
         window.requestAnimationFrame(() => {
+          setCaretHint('end')
           setActive(Math.min(current.from + parts.length - 1, finalBlocks.length - 1))
         })
         return null
@@ -349,11 +154,14 @@ function BlockEditor({
     [blocks, commit]
   )
 
+  // Textareas only: rich blocks are contenteditables that own their own caret,
+  // so every textarea-specific effect below simply no-ops for them.
   const editorFor = (index: number | null): HTMLTextAreaElement | null =>
     index === null
       ? null
-      : (containerRef.current?.querySelector<HTMLTextAreaElement>(`[data-block="${index}"]`) ??
-        null)
+      : (containerRef.current?.querySelector<HTMLTextAreaElement>(
+          `textarea[data-block="${index}"]`
+        ) ?? null)
 
   // Focus and place the caret after a structural change.
   useLayoutEffect(() => {
@@ -368,7 +176,7 @@ function BlockEditor({
       el.setSelectionRange(selRef.current[0], selRef.current[1])
       selRef.current = null
     }
-  }, [active])
+  }, [active, rawMode])
 
   // Keep the focused block's textarea exactly as tall as its content.
   // Also restores the caret after a same-block Tab indent — or any same-block
@@ -411,6 +219,49 @@ function BlockEditor({
     const next = blocks.slice()
     next[index] = text
     commit(next)
+  }
+
+  // ---- rich (formatted) block callbacks -----------------------------------
+  /** Shift+Enter / heading Enter / empty list item: replace this block's
+   * markdown and open a new block below. */
+  const splitRichBlock = (index: number, before: string, after: string): void => {
+    const next = blocks.slice()
+    next[index] = before
+    next.splice(index + 1, 0, after)
+    commit(next)
+    setCaretHint('start')
+    setActive(index + 1)
+  }
+
+  /** Backspace at the very start of a rich block: merge into the previous. */
+  const mergeRichIntoPrev = (index: number): void => {
+    if (index <= 0) return
+    const next = blocks.slice()
+    const caret = next[index - 1].length
+    const merged = next[index - 1] + next[index]
+    next.splice(index - 1, 2, merged)
+    caretRef.current = caret
+    commit(next)
+    setActive(index - 1)
+  }
+
+  /** Arrow at a rich block's edge: hop to the neighbouring block. */
+  const navigateRichBlock = (index: number, dir: 'up' | 'down'): void => {
+    if (dir === 'up' && index > 0) {
+      caretRef.current = (blocks[index - 1] ?? '').length
+      setCaretHint('end')
+      setActive(index - 1)
+    } else if (dir === 'down' && index < blocks.length - 1) {
+      caretRef.current = 0
+      setCaretHint('start')
+      setActive(index + 1)
+    }
+  }
+
+  /** Alt+Arrow: reorder a rich block, keeping it open. */
+  const moveRichBlock = (index: number, dir: 'up' | 'down'): void => {
+    if (dir === 'up') moveBlock(index, index - 1, true)
+    else moveBlock(index, index + 1, false)
   }
 
   /**
@@ -534,6 +385,7 @@ function BlockEditor({
     next.splice(insertAt, 0, moved)
     commit(next)
     if (active !== null) {
+      setCaretHint('end')
       if (active === from) {
         setActive(insertAt)
       } else {
@@ -616,63 +468,64 @@ function BlockEditor({
     moveBlock(from, blocks.length - 1, false)
   }
 
-  const activate = (index: number): void => {
+  const activate = (index: number, raw = false): void => {
     clearMulti()
     caretRef.current = blocks[index]?.length ?? 0
+    setCaretHint('end')
+    setRawMode(raw)
     setSlash(null)
     setActive(index)
+  }
+
+  /** Row indices covered by the current native text selection, when it spans
+   * more than one rendered row inside this editor. */
+  const nativeRowRange = (): [number, number] | null => {
+    const native = window.getSelection()
+    if (
+      !native ||
+      native.isCollapsed ||
+      !containerRef.current?.contains(native.anchorNode) ||
+      !containerRef.current?.contains(native.focusNode)
+    ) {
+      return null
+    }
+    const rowFor = (node: Node | null): number | null => {
+      if (!node) return null
+      const el = node instanceof Element ? node : (node.parentElement as Element | null)
+      const row = el?.closest?.('.block-row') as HTMLElement | null
+      const n = row?.dataset.row ? Number(row.dataset.row) : NaN
+      return Number.isFinite(n) ? n : null
+    }
+    const a = rowFor(native.anchorNode)
+    const f = rowFor(native.focusNode)
+    if (a === null || f === null || a === f) return null
+    if (a < 0 || f < 0 || a >= blocks.length || f >= blocks.length) return null
+    return [a, f]
+  }
+
+  /** Turn a native cross-row selection into the custom multi-selection so the
+   * highlight survives mouseup (instead of opening an editor / new block). */
+  const selectNativeRange = (range: [number, number]): void => {
+    const lo = Math.min(range[0], range[1])
+    const hi = Math.max(range[0], range[1])
+    const rows: number[] = []
+    for (let i = lo; i <= hi; i++) rows.push(i)
+    setActive(null)
+    setBulk(null)
+    setSelected(rows)
+    anchorRef.current = range[0]
+    focusContainer()
   }
 
   /** Click on a rendered block: modifiers select, plain click edits.
    * A native drag-selection spanning rows becomes a multi-selection instead
    * of opening a single editor (which would destroy the selection). */
   const onViewClick = (event: React.MouseEvent, index: number): void => {
-    const native = window.getSelection()
-    if (
-      native &&
-      !native.isCollapsed &&
-      containerRef.current?.contains(native.anchorNode) &&
-      containerRef.current?.contains(native.focusNode)
-    ) {
-      const anchorRow =
-        (native.anchorNode as Node | null) instanceof Element
-          ? ((native.anchorNode as Element).closest?.('.block-row') as HTMLElement | null)
-          : ((
-              native.anchorNode as Node | null as unknown as { parentElement?: Element | null }
-            )?.parentElement?.closest?.('.block-row') as HTMLElement | null)
-      const focusRow =
-        (native.focusNode as Node | null) instanceof Element
-          ? ((native.focusNode as Element).closest?.('.block-row') as HTMLElement | null)
-          : ((
-              native.focusNode as Node | null as unknown as { parentElement?: Element | null }
-            )?.parentElement?.closest?.('.block-row') as HTMLElement | null)
-      const a = anchorRow?.dataset.row ? Number(anchorRow.dataset.row) : index
-      const f = focusRow?.dataset.row ? Number(focusRow.dataset.row) : index
-      if (
-        Number.isFinite(a) &&
-        Number.isFinite(f) &&
-        a >= 0 &&
-        f >= 0 &&
-        a < blocks.length &&
-        f < blocks.length &&
-        a !== f
-      ) {
-        event.preventDefault()
-        const lo = Math.min(a, f)
-        const hi = Math.max(a, f)
-        const range: number[] = []
-        for (let i = lo; i <= hi; i++) range.push(i)
-        setActive(null)
-        setBulk(null)
-        setSelected(range)
-        anchorRef.current = a
-        focusContainer()
-        return
-      }
-      if (a !== f) {
-        event.preventDefault()
-        return
-      }
+    const nativeRange = nativeRowRange()
+    if (nativeRange) {
+      event.preventDefault()
+      selectNativeRange(nativeRange)
+      return
     }
     if (event.shiftKey && anchorRef.current !== null) {
       event.preventDefault()
@@ -700,7 +553,8 @@ function BlockEditor({
       return
     }
     anchorRef.current = index
-    activate(index)
+    // Triple-click drops straight into raw markdown source editing.
+    activate(index, event.detail >= 3)
   }
 
   const onGripClick = (event: React.MouseEvent, index: number): void => {
@@ -956,11 +810,20 @@ function BlockEditor({
   // Clicking the empty area under the last block appends one.
   const onContainerClick = (event: React.MouseEvent<HTMLDivElement>): void => {
     if (event.target !== event.currentTarget) return
+    // A drag-selection across rows releases over the container, not a row.
+    // Keep that highlight as a multi-selection instead of clearing it.
+    const nativeRange = nativeRowRange()
+    if (nativeRange) {
+      event.preventDefault()
+      selectNativeRange(nativeRange)
+      return
+    }
     clearMulti()
     const next = blocks.slice()
     if (next[next.length - 1] !== '') next.push('')
     commit(next)
     caretRef.current = 0
+    setCaretHint('start')
     setActive(next.length - 1)
   }
 
@@ -1091,60 +954,79 @@ function BlockEditor({
                   </span>
                 )}
                 {index === active ? (
-                  <>
-                    <textarea
-                      key={`edit-${index}`}
-                      data-block={index}
-                      className="block__input"
-                      value={block}
-                      rows={1}
-                      spellCheck={false}
-                      placeholder={index === 0 ? placeholder : ''}
-                      onChange={(event) => {
-                        setBlockText(index, event.target.value)
-                        refreshSlash(index, event.target.value, event.target.selectionStart)
-                      }}
-                      onClick={(event) =>
-                        refreshSlash(
-                          index,
-                          event.currentTarget.value,
-                          event.currentTarget.selectionStart
-                        )
-                      }
-                      onKeyDown={(event) => {
-                        onKeyDown(event, index)
-                        if (
-                          event.key !== 'Enter' &&
-                          event.key !== 'Tab' &&
-                          event.key !== 'Escape'
-                        ) {
-                          // Caret may have moved (arrows, typing filtered above).
-                          const el = event.currentTarget
-                          window.requestAnimationFrame(() => {
-                            if (document.activeElement === el) {
-                              refreshSlash(index, el.value, el.selectionStart)
-                            }
-                          })
-                        }
-                      }}
-                      onBlur={() => setActive((current) => (current === index ? null : current))}
-                      onContextMenu={(event) => onTextContextMenu(event, index)}
+                  isRichKind(blockKind(block)) && !rawMode ? (
+                    <RichBlockEditor
+                      key={`rich-${index}`}
+                      index={index}
+                      block={block}
+                      placeholder={index === 0 ? placeholder : undefined}
+                      onChange={(markdown) => setBlockText(index, markdown)}
+                      onSplit={(before, after) => splitRichBlock(index, before, after)}
+                      onMergePrev={() => mergeRichIntoPrev(index)}
+                      onNavigate={(dir) => navigateRichBlock(index, dir)}
+                      onMoveBlock={(dir) => moveRichBlock(index, dir)}
+                      onEscape={() => setActive(null)}
+                      onCreateChild={onCreateChild}
+                      onRequestRaw={() => setRawMode(true)}
+                      initialCaret={caretHint}
                     />
-                    {slash !== null && slash.index === index && (
-                      <SlashMenu
-                        token={slash.token}
-                        selected={slashSel}
-                        onHover={setSlashSel}
-                        onPick={(cmd) => applySlash(index, cmd)}
+                  ) : (
+                    <>
+                      <textarea
+                        key={`edit-${index}`}
+                        data-block={index}
+                        className="block__input"
+                        value={block}
+                        rows={1}
+                        spellCheck={false}
+                        placeholder={index === 0 ? placeholder : ''}
+                        onChange={(event) => {
+                          setBlockText(index, event.target.value)
+                          refreshSlash(index, event.target.value, event.target.selectionStart)
+                        }}
+                        onClick={(event) =>
+                          refreshSlash(
+                            index,
+                            event.currentTarget.value,
+                            event.currentTarget.selectionStart
+                          )
+                        }
+                        onKeyDown={(event) => {
+                          onKeyDown(event, index)
+                          if (
+                            event.key !== 'Enter' &&
+                            event.key !== 'Tab' &&
+                            event.key !== 'Escape'
+                          ) {
+                            // Caret may have moved (arrows, typing filtered above).
+                            const el = event.currentTarget
+                            window.requestAnimationFrame(() => {
+                              if (document.activeElement === el) {
+                                refreshSlash(index, el.value, el.selectionStart)
+                              }
+                            })
+                          }
+                        }}
+                        onBlur={() => setActive((current) => (current === index ? null : current))}
+                        onContextMenu={(event) => onTextContextMenu(event, index)}
                       />
-                    )}
-                  </>
+                      {slash !== null && slash.index === index && (
+                        <SlashMenu
+                          token={slash.token}
+                          selected={slashSel}
+                          onHover={setSlashSel}
+                          onPick={(cmd) => applySlash(index, cmd)}
+                        />
+                      )}
+                    </>
+                  )
                 ) : (
                   <div
                     key={`view-${index}`}
                     className="block markdown"
                     role="button"
                     tabIndex={-1}
+                    title="Click to edit · Triple-click for markdown source"
                     onClick={(event) => onViewClick(event, index)}
                   >
                     {block.trim() ? (

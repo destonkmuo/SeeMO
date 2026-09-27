@@ -2090,8 +2090,55 @@ button.sidebar__today-row:hover {
 
 /* Nameless empty blocks keep a full line of clickable height, invisibly. */
 .block__placeholder:empty::before {
-  content: ' ';
+  content: ' ';
   white-space: pre;
+}
+
+/* Rich (formatted) inline editing surface: while a block is open it shows the
+   rendered result — bold looks bold, lists look like lists — so markdown
+   markers never appear. The note is still stored as plain markdown. */
+.rblock {
+  outline: none;
+  cursor: text;
+  user-select: text;
+  min-height: 1.75em;
+}
+
+.rblock:empty::before {
+  content: attr(data-placeholder);
+  color: var(--ev-c-text-3);
+  pointer-events: none;
+}
+
+.rblock a {
+  cursor: text;
+}
+
+/* Atomic widgets: no inline text form, so they stay intact and unselectable
+   while the surrounding prose is edited. */
+.rblock .md-img,
+.rblock .md-wiki,
+.rblock .math {
+  user-select: none;
+}
+
+.rblock .md-img {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ev-c-text-2);
+  font-size: 0.85em;
+}
+
+.rblock .md-wiki {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: rgba(106, 176, 255, 0.12);
+  color: var(--accent);
+}
+
+.rblock .markdown__task input {
+  cursor: pointer;
 }
 
 /* `/` insert menu: floats under the active block, inside its row. */
