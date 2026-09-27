@@ -1,10 +1,11 @@
-import { app, nativeImage, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerAlarmHandlers, registerAlarmScheme } from './alarm'
 import { registerCalendarHandlers } from './calendar'
 import { startVoice, stopVoice, speakResponse } from './voice'
 import { registerGithubHandlers } from './github'
+import { applyDockIcon } from './icon'
 import { registerLockHandlers } from './lock'
 import { handleActivate, registerOrbHandlers, trackMainWindow } from './orb'
 import { registerMediaHandlers, registerMediaScheme } from './media'
@@ -48,6 +49,7 @@ function createWindow(): void {
   trackMainWindow(mainWindow)
 
   mainWindow.on('ready-to-show', () => {
+    applyDockIcon()
     mainWindow.show()
   })
 
@@ -75,17 +77,20 @@ app.whenReady().then(() => {
   // Dev runs on macOS execute inside Electron.app, whose own bundle icon
   // lands in the dock. Override it at runtime so dev shows the real icon
   // too (packaged builds already carry build/icon.icns — no override).
-  if (is.dev && process.platform === 'darwin' && app.dock) {
-    const dockIcon = nativeImage.createFromPath(icon)
-    if (!dockIcon.isEmpty()) app.dock.setIcon(dockIcon)
-  }
+  applyDockIcon()
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
   // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
+    // A new window can flip macOS's activation policy; re-assert the icon.
+    applyDockIcon()
   })
+
+  // Any window gaining focus is a point macOS may have restored the bundle
+  // icon; keep SeeMO's in place.
+  app.on('browser-window-focus', () => applyDockIcon())
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
@@ -123,6 +128,8 @@ app.whenReady().then(() => {
   startVoice()
 
   app.on('activate', function () {
+    // macOS re-activation can reset a custom Dock icon; re-assert it.
+    applyDockIcon()
     // Dock click / Cmd+Tab back: bring a minimized/hidden main window
     // forward (the orb counts as a window, so the zero-windows check below
     // would otherwise never fire). Only re-create when nothing exists.

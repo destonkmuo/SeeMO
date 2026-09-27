@@ -61,7 +61,6 @@ export function FlashcardsChildView({ noteId }: { noteId: string }): React.JSX.E
   const [index, setIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [known, setKnown] = useState<Set<string>>(new Set())
-  const [termsRevealed, setTermsRevealed] = useState(false)
   // Terms index stays hidden at the top of the page; scrolling down brings
   // it in (or immediately, when the page is too short to scroll).
   // Subscription only — state lands in callbacks, never the body.
@@ -98,7 +97,6 @@ export function FlashcardsChildView({ noteId }: { noteId: string }): React.JSX.E
     setIndex(0)
     setFlipped(false)
     setKnown(new Set())
-    setTermsRevealed(false)
     setPastTop(false)
   }
 
@@ -236,20 +234,7 @@ export function FlashcardsChildView({ noteId }: { noteId: string }): React.JSX.E
               {pastTop ? (
                 <div className="terms-list">
                   <p className="terms-list__head">Terms in this set · {data.cards.length}</p>
-                  <div
-                    className={`terms-list__scroll${termsRevealed ? ' is-revealed' : ''}`}
-                    onScroll={() => {
-                      if (!termsRevealed) setTermsRevealed(true)
-                    }}
-                    onClick={() => {
-                      if (!termsRevealed) setTermsRevealed(true)
-                    }}
-                  >
-                    {!termsRevealed && (
-                      <span className="terms-list__veil" aria-hidden="true">
-                        Scroll to reveal
-                      </span>
-                    )}
+                  <div className="terms-list__scroll">
                     <ol className="terms-list__items">
                       {data.cards.map((card, i) => (
                         <li key={card.id} className="terms-list__row">

@@ -2,6 +2,7 @@ import { BrowserWindow, app, ipcMain, screen } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
+import { applyDockIcon } from './icon'
 
 /**
  * Picture-in-picture orb.
@@ -115,6 +116,9 @@ export function trackMainWindow(win: BrowserWindow): void {
   win.on('focus', () => {
     hasFocusedOnce = true
     userAway = false
+    // Coming back to the app is a common point for macOS to have swapped the
+    // Dock icon back to Electron's; re-assert SeeMO's.
+    applyDockIcon()
     resync()
   })
   win.on('blur', () => {
@@ -252,8 +256,10 @@ function createOrb(): void {
   }
   // Keep the Dock icon while the orb is the app's only visible window:
   // showing a non-activating window can otherwise flip macOS to an
-  // accessory activation policy, which hides SeeMO from the Dock.
+  // accessory activation policy, which hides SeeMO from the Dock. Changing
+  // the policy also drops any custom icon, so re-assert it right after.
   if (process.platform === 'darwin') app.setActivationPolicy('regular')
+  applyDockIcon()
 
   let revealed = false
   const reveal = (): void => {
@@ -291,6 +297,7 @@ function destroyOrb(): void {
 function focusMainWindow(): void {
   const main = mainWindow
   destroyOrb()
+  applyDockIcon()
   if (!main || main.isDestroyed()) return
   bringMainForward(main)
 }
