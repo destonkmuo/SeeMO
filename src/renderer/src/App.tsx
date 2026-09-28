@@ -138,6 +138,13 @@ function App(): React.JSX.Element {
       const customUrl = state.customAlarm?.url ?? null
       const now = Date.now()
       for (const alarm of state.alarms) {
+        // Repeat: while ringing, restart the loop every interval until Stop.
+        // Also retries playback when the browser blocked it mid-ring.
+        if (alarm.ringing && alarm.repeat && now - alarm.lastRepeatAt >= alarm.repeatMin * 60_000) {
+          startAlarmLoop(resolveSoundUrl(alarm.soundId, customUrl))
+          state.updateAlarm(alarm.id, { lastRepeatAt: now })
+          continue
+        }
         if (!alarm.enabled || alarm.ringing || now < alarm.quietUntil) continue
         if (alarm.snoozeUntil && alarm.snoozeUntil !== nowHHMM()) {
           state.updateAlarm(alarm.id, { snoozeUntil: null })
@@ -145,7 +152,7 @@ function App(): React.JSX.Element {
         const target = alarm.snoozeUntil ?? alarm.time
         if (target && isAlarmDue(target)) {
           startAlarmLoop(resolveSoundUrl(alarm.soundId, customUrl))
-          state.updateAlarm(alarm.id, { ringing: true })
+          state.updateAlarm(alarm.id, { ringing: true, lastRepeatAt: now })
         }
       }
       for (const timer of state.timers) {

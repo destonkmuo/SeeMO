@@ -211,9 +211,12 @@ function LockSettings(): React.JSX.Element {
     }
   }
 
+  // Mount-once fetch from the main process (not derived state).
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     void refresh()
   }, [])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const clearFields = (): void => {
     setCurrent('')

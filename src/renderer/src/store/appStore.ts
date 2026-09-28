@@ -106,6 +106,11 @@ export interface AlarmItem {
   snoozeUntil: string | null
   quietUntil: number
   soundId: string
+  /** Re-fire on an interval until Stop. */
+  repeat: boolean
+  repeatMin: number
+  /** Last fire/repeat timestamp (drives the interval). */
+  lastRepeatAt: number
 }
 
 /** One countdown timer. Progress derives from `endsAt` while running. Kind
@@ -454,6 +459,10 @@ function restoreAlarms(saved: SavedClocks): AlarmItem[] {
     for (const raw of saved.alarms) {
       const item = asRecord(raw)
       if (!item || typeof item.id !== 'string') continue
+      const repeatMin =
+        typeof item.repeatMin === 'number' && !Number.isNaN(item.repeatMin)
+          ? Math.min(60, Math.max(1, Math.floor(item.repeatMin)))
+          : 5
       out.push({
         id: item.id,
         label: typeof item.label === 'string' && item.label ? item.label : 'Alarm',
@@ -465,7 +474,10 @@ function restoreAlarms(saved: SavedClocks): AlarmItem[] {
         enabled: item.enabled === true,
         ringing: false,
         snoozeUntil: typeof item.snoozeUntil === 'string' ? item.snoozeUntil : null,
-        quietUntil: 0
+        quietUntil: 0,
+        repeat: item.repeat === true,
+        repeatMin,
+        lastRepeatAt: 0
       })
     }
   }
@@ -478,7 +490,10 @@ function restoreAlarms(saved: SavedClocks): AlarmItem[] {
       enabled: saved.alarmEnabled === true,
       ringing: false,
       snoozeUntil: null,
-      quietUntil: 0
+      quietUntil: 0,
+      repeat: false,
+      repeatMin: 5,
+      lastRepeatAt: 0
     })
   }
   return out
@@ -790,7 +805,10 @@ export const useAppStore = create<AppState>()(
               enabled: time !== null && time !== undefined,
               ringing: false,
               snoozeUntil: null,
-              quietUntil: 0
+              quietUntil: 0,
+              repeat: false,
+              repeatMin: 5,
+              lastRepeatAt: 0
             }
           ]
         }))

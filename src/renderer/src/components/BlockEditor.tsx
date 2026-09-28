@@ -13,6 +13,15 @@ export type { ChildKind } from '../slash'
 /** Native DnD payload marking a drag as a block reorder (not a picture). */
 const BLOCK_MIME = 'application/x-seemo-block'
 
+/** Selection-formatting actions (static: mapped in render, never rebuilt). */
+const FORMAT_ITEMS: readonly { label: string; key: string; before: string; after: string }[] = [
+  { label: 'Bold', key: 'Ctrl+B', before: '**', after: '**' },
+  { label: 'Italic', key: 'Ctrl+I', before: '*', after: '*' },
+  { label: 'Highlight', key: 'Ctrl+Shift+H', before: '==', after: '==' },
+  { label: 'Strikethrough', key: 'Ctrl+Shift+X', before: '~~', after: '~~' },
+  { label: 'Code', key: 'Ctrl+E', before: '`', after: '`' }
+]
+
 interface BlockEditorProps {
   /** Raw markdown for the whole note. */
   value: string
@@ -1062,36 +1071,13 @@ function BlockEditor({
           style={{ left: selMenu.x, top: selMenu.y }}
           onContextMenu={(event) => event.preventDefault()}
         >
-          {(
-            [
-              {
-                label: 'Bold',
-                key: 'Ctrl+B',
-                run: (): void => wrapSelection(selMenu.index, '**', '**')
-              },
-              {
-                label: 'Italic',
-                key: 'Ctrl+I',
-                run: (): void => wrapSelection(selMenu.index, '*', '*')
-              },
-              {
-                label: 'Highlight',
-                key: 'Ctrl+Shift+H',
-                run: (): void => wrapSelection(selMenu.index, '==', '==')
-              },
-              {
-                label: 'Strikethrough',
-                key: 'Ctrl+Shift+X',
-                run: (): void => wrapSelection(selMenu.index, '~~', '~~')
-              },
-              {
-                label: 'Code',
-                key: 'Ctrl+E',
-                run: (): void => wrapSelection(selMenu.index, '`', '`')
-              }
-            ] as const
-          ).map((item) => (
-            <button key={item.label} type="button" className="note-menu__item" onClick={item.run}>
+          {FORMAT_ITEMS.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              className="note-menu__item"
+              onClick={() => wrapSelection(selMenu.index, item.before, item.after)}
+            >
               <span>{item.label}</span>
               <kbd className="note-menu__key">{item.key}</kbd>
             </button>

@@ -226,15 +226,51 @@ function AlarmCard({ alarm }: { alarm: AlarmItem }): React.JSX.Element {
         />
         Enabled
       </label>
+      <div className="miniapp__row">
+        <label className="settings__check">
+          <input
+            type="checkbox"
+            checked={alarm.repeat}
+            onChange={(event) => updateAlarm(alarm.id, { repeat: event.target.checked })}
+          />
+          Repeat until stopped
+        </label>
+        {alarm.repeat && (
+          <label className="pomo__field" style={{ maxWidth: 110 }}>
+            Every (min)
+            <input
+              type="number"
+              className="dlg__input"
+              min={1}
+              max={60}
+              value={alarm.repeatMin}
+              aria-label={`${alarm.label} repeat minutes`}
+              onChange={(event) =>
+                updateAlarm(alarm.id, {
+                  repeatMin: Math.min(
+                    60,
+                    Math.max(1, Math.floor(Number(event.target.value) || 0) || 5)
+                  )
+                })
+              }
+            />
+          </label>
+        )}
+      </div>
       {alarm.ringing ? (
-        <div className="miniapp__row">
-          <button type="button" className="btn btn--primary" onClick={stop}>
-            Stop
-          </button>
-          <button type="button" className="btn btn--ghost" onClick={snooze}>
-            Snooze 5 min
-          </button>
-        </div>
+        <>
+          <div className="miniapp__row">
+            <button type="button" className="btn btn--primary" onClick={stop}>
+              Stop
+            </button>
+            <button type="button" className="btn btn--ghost" onClick={snooze}>
+              Snooze 5 min
+            </button>
+          </div>
+          {alarm.repeat && (
+            <p className="miniapp__hint">Repeating every {alarm.repeatMin} min until stopped.</p>
+          )}
+        </>
       ) : (
         <p className="miniapp__hint">
           {!alarm.enabled || !alarm.time
@@ -242,6 +278,9 @@ function AlarmCard({ alarm }: { alarm: AlarmItem }): React.JSX.Element {
             : alarm.snoozeUntil
               ? `Snoozed until ${formatTime12h(alarm.snoozeUntil)}.`
               : `Rings daily at ${formatTime12h(alarm.time)} while the app is open.`}
+          {alarm.repeat && alarm.enabled && alarm.time && (
+            <> Repeats every {alarm.repeatMin} min until stopped.</>
+          )}
         </p>
       )}
     </section>
