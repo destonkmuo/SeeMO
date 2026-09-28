@@ -130,37 +130,40 @@ export function inlineFromDom(node: Node): string {
       return
     }
     if (!(child instanceof HTMLElement)) return
-    const tag = child.tagName.toLowerCase()
-    if (tag === 'br') {
-      out += '\n'
-      return
-    }
-    if (child.dataset.tex !== undefined) {
-      const display = child.dataset.display === 'true'
-      const fence = display ? '$$' : '$'
-      out += `${fence}${child.dataset.tex}${fence}`
-      return
-    }
-    if (child.dataset.imgSrc !== undefined) {
-      out += `![${child.dataset.imgAlt ?? ''}](${child.dataset.imgSrc})`
-      return
-    }
-    if (child.dataset.wikiTarget !== undefined) {
-      const target = child.dataset.wikiTarget
-      const alias = child.dataset.wikiAlias ?? ''
-      out += alias && alias !== target ? `[[${target}|${alias}]]` : `[[${target}]]`
-      return
-    }
-    const inner = inlineFromDom(child)
-    if (tag === 'strong' || tag === 'b') out += `**${inner}**`
-    else if (tag === 'em' || tag === 'i') out += `*${inner}*`
-    else if (tag === 'del' || tag === 's' || tag === 'strike') out += `~~${inner}~~`
-    else if (tag === 'mark') out += `==${inner}==`
-    else if (tag === 'code') out += `\`${inner}\``
-    else if (tag === 'a') out += `[${inner}](${child.getAttribute('data-href') ?? ''})`
-    else out += inner
+    out += inlineElementToMarkdown(child)
   })
   return out
+}
+
+/**
+ * One element's markdown, including its own markers around its contents.
+ * (inlineFromDom only translates *children*, so callers handling elements
+ * directly must go through here or formatting markers get silently dropped.)
+ */
+function inlineElementToMarkdown(el: HTMLElement): string {
+  const tag = el.tagName.toLowerCase()
+  if (tag === 'br') return '\n'
+  if (el.dataset.tex !== undefined) {
+    const display = el.dataset.display === 'true'
+    const fence = display ? '$$' : '$'
+    return `${fence}${el.dataset.tex}${fence}`
+  }
+  if (el.dataset.imgSrc !== undefined) {
+    return `![${el.dataset.imgAlt ?? ''}](${el.dataset.imgSrc})`
+  }
+  if (el.dataset.wikiTarget !== undefined) {
+    const target = el.dataset.wikiTarget
+    const alias = el.dataset.wikiAlias ?? ''
+    return alias && alias !== target ? `[[${target}|${alias}]]` : `[[${target}]]`
+  }
+  const inner = inlineFromDom(el)
+  if (tag === 'strong' || tag === 'b') return `**${inner}**`
+  if (tag === 'em' || tag === 'i') return `*${inner}*`
+  if (tag === 'del' || tag === 's' || tag === 'strike') return `~~${inner}~~`
+  if (tag === 'mark') return `==${inner}==`
+  if (tag === 'code') return `\`${inner}\``
+  if (tag === 'a') return `[${inner}](${el.getAttribute('data-href') ?? ''})`
+  return inner
 }
 
 /** Split a block element's contents into lines at `<br>` boundaries. */
@@ -176,33 +179,77 @@ function splitOnBr(el: Element): string[] {
       lines.push('')
       return
     }
-    lines[lines.length - 1] += inlineFromDom(child)
+    lines[lines.length - 1] += inlineElementToMarkdown(child)
   })
   return lines
 }
 
-/** Every text line in a container, flattening block children. */
+/** Block-level tags start their own line(s); everything else is inline. */
+const BLOCK_TAGS = new Set([
+  'p',
+  'div',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'blockquote',
+  'pre',
+  'li',
+  'section',
+  'article',
+  'header',
+  'footer',
+  'table',
+  'hr'
+])
+
+/**
+ * Every text line in a container, flattening block children. Adjacent inline
+ * content (text runs, strong/em spans, chips, …) accumulates into one line;
+ * only block boundaries and `<br>` split lines.
+ */
 function collectLines(el: Element): string[] {
   const out: string[] = []
+  // Whether the last entry is still open to inline continuation.
+  let open = false
+  const pushInline = (text: string): void => {
+    if (!text) return
+    if (open && out.length > 0) out[out.length - 1] += text
+    else out.push(text)
+    open = true
+  }
+  const pushBlock = (lines: string[]): void => {
+    for (const line of lines) out.push(line)
+    open = false
+  }
   el.childNodes.forEach((child) => {
     if (child.nodeType === Node.TEXT_NODE) {
       const text = child.textContent ?? ''
-      if (text.trim()) out.push(text)
+      if (text.trim()) pushInline(text)
       return
     }
     if (!(child instanceof HTMLElement)) return
     const tag = child.tagName.toLowerCase()
     if (tag === 'br') {
       out.push('')
+      open = false
       return
     }
     if (tag === 'ul' || tag === 'ol') {
+      const lis: string[] = []
       Array.from(child.children).forEach((li) => {
-        if (li.tagName.toLowerCase() === 'li') out.push(inlineFromDom(li).replace(/\n+$/, ''))
+        if (li.tagName.toLowerCase() === 'li') lis.push(inlineFromDom(li).replace(/\n+$/, ''))
       })
+      pushBlock(lis)
       return
     }
-    splitOnBr(child).forEach((line) => out.push(line))
+    if (!BLOCK_TAGS.has(tag)) {
+      pushInline(inlineElementToMarkdown(child))
+      return
+    }
+    pushBlock(splitOnBr(child))
   })
   return out
 }
@@ -224,7 +271,7 @@ function listItems(el: Element): { text: string; checked: boolean | null }[] {
         text += child.textContent ?? ''
         return
       }
-      if (child instanceof HTMLElement) text += inlineFromDom(child)
+      if (child instanceof HTMLElement) text += inlineElementToMarkdown(child)
     })
     return { text, checked: input ? input.checked : null }
   })

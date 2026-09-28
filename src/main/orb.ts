@@ -3,6 +3,7 @@ import { promises as fs } from 'fs'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { applyDockIcon } from './icon'
+import icon from '../../resources/icon.png?asset'
 
 /**
  * Picture-in-picture orb.
@@ -214,6 +215,9 @@ function createOrb(): void {
   const win = new BrowserWindow({
     width: ORB_SIZE,
     height: ORB_SIZE,
+    // Same SeeMO icon as the main window / macOS Dock (matters on
+    // Linux/Windows taskbars; ignored on macOS where the Dock is app-wide).
+    icon,
     // The look: transparent frameless stage; the renderer paints the orb.
     transparent: true,
     frame: false,

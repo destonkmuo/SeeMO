@@ -159,6 +159,17 @@ function RichBlockEditor({
   const [slashSel, setSlashSel] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
   const caretRef = useRef<'start' | 'end'>(initialCaret)
+  // The browser owns the DOM while typing: seeded HTML is applied only on
+  // mount/reseed, never on unrelated re-renders, or React would stomp
+  // in-flight edits back to the seed. (html always changes with key, so both
+  // in deps is exact; the equality guard skips no-op writes.)
+  const applySeed = useCallback(
+    (node: HTMLDivElement | null) => {
+      ref.current = node
+      if (node && node.innerHTML !== seed.html) node.innerHTML = seed.html
+    },
+    [seed.key, seed.html]
+  )
 
   const commit = useCallback(() => {
     const el = ref.current
@@ -537,7 +548,7 @@ function RichBlockEditor({
     <>
       <div
         key={seed.key}
-        ref={ref}
+        ref={applySeed}
         data-block={index}
         className={`block markdown rblock rblock--${seed.kind}`}
         contentEditable
@@ -547,7 +558,6 @@ function RichBlockEditor({
         aria-multiline="true"
         aria-label="Edit block"
         data-placeholder={placeholder}
-        dangerouslySetInnerHTML={{ __html: seed.html }}
         onInput={onInput}
         onKeyDown={onKeyDown}
         onBlur={() => {
@@ -557,8 +567,8 @@ function RichBlockEditor({
         onPaste={onPaste}
         onClick={(event) => {
           const target = event.target
-          // Triple-click: hand off to raw markdown editing for this block.
-          if (event.detail >= 3) {
+          // Shift+click: hand off to raw markdown editing for this block.
+          if (event.shiftKey) {
             event.preventDefault()
             commit()
             onRequestRaw?.()

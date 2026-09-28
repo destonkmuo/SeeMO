@@ -536,18 +536,6 @@ function BlockEditor({
       selectNativeRange(nativeRange)
       return
     }
-    if (event.shiftKey && anchorRef.current !== null) {
-      event.preventDefault()
-      const lo = Math.min(anchorRef.current, index)
-      const hi = Math.max(anchorRef.current, index)
-      const range: number[] = []
-      for (let i = lo; i <= hi; i++) range.push(i)
-      setActive(null)
-      setBulk(null)
-      setSelected(range)
-      focusContainer()
-      return
-    }
     if (event.metaKey || event.ctrlKey) {
       event.preventDefault()
       anchorRef.current = index
@@ -562,8 +550,9 @@ function BlockEditor({
       return
     }
     anchorRef.current = index
-    // Triple-click drops straight into raw markdown source editing.
-    activate(index, event.detail >= 3)
+    // Single click edits rich text directly; Shift+click drops into raw
+    // markdown source editing for this block.
+    activate(index, event.shiftKey)
   }
 
   const onGripClick = (event: React.MouseEvent, index: number): void => {
